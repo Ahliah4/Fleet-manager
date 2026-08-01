@@ -18,7 +18,7 @@ import Button from "../Components/Button";
 import Card from "../Components/Card";
 import EmptyState from "../Components/EmptyState";
 import Loader from "../Components/Loader";
-import StatCard from "../Components/StatCard";
+import StatCard from "../Components/statCard";
 import StatusBadge from "../Components/StatusBadge";
 import { supabase } from "../lib/supabaseClient";
 import { addStatus, formatDate, getMonthlyRegistrations } from "../lib/vehicleHelpers";
