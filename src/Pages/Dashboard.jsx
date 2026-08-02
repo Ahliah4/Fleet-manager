@@ -112,10 +112,10 @@ function Dashboard() {
         <section className="space-y-6">
             <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                 <div>
-                    <h1 className="text-4xl font-bold text-slate-900">
+                    <h1 className="page-title">
                         Dashboard
                     </h1>
-                    <p className="mt-2 text-gray-500">
+                    <p className="page-description">
                         Fleet document status and recent activity at a glance.
                     </p>
                 </div>
@@ -159,9 +159,9 @@ function Dashboard() {
                     </div>
 
                     <div className="grid gap-6 xl:grid-cols-[0.85fr_1.15fr]">
-                        <Card>
+                        <Card className="overflow-hidden">
                             <div className="flex items-center justify-between">
-                                <h2 className="text-xl font-bold text-slate-900">
+                                <h2 className="text-lg font-semibold text-slate-950">
                                     Fleet Status
                                 </h2>
                                 <BarChart3 className="text-blue-600" size={22} />
@@ -182,7 +182,7 @@ function Dashboard() {
                         </Card>
 
                         <Card>
-                            <h2 className="text-xl font-bold text-slate-900">
+                            <h2 className="text-lg font-semibold text-slate-950">
                                 Monthly Vehicle Registrations
                             </h2>
                             <div className="mt-5 h-72">

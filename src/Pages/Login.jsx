@@ -1,10 +1,9 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Eye, EyeOff, LockKeyhole, Mail } from "lucide-react";
+import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../lib/authContext";
 
-
 function Login() {
-
     const { signIn } = useAuth();
     const navigate = useNavigate();
 
@@ -12,11 +11,11 @@ function Login() {
     const [password, setPassword] = useState("");
     const [error, setError] = useState(null);
     const [loading, setLoading] = useState(false);
-
+    const [showPassword, setShowPassword] = useState(false);
 
     const handleSubmit = async (e) => {
-
         e.preventDefault();
+
         setError(null);
         setLoading(true);
 
@@ -30,24 +29,24 @@ function Login() {
         }
 
         navigate("/");
-
     };
 
-
     return (
-
-        <div className="min-h-screen flex items-center justify-center bg-slate-950">
-
+        <div className="flex min-h-screen items-center justify-center bg-slate-950 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-blue-950 via-slate-950 to-slate-950 p-4 sm:p-6">
             <form
-            onSubmit={handleSubmit}
-            className="bg-slate-900 border border-slate-800 rounded-3xl p-8 w-full max-w-sm space-y-6"
+                onSubmit={handleSubmit}
+                className="w-full max-w-md space-y-6 rounded-3xl border border-white/10 bg-slate-900/90 p-6 shadow-2xl shadow-black/20 backdrop-blur sm:p-8"
             >
-
                 <div>
-                    <h1 className="text-3xl font-bold">FleetManager</h1>
-                    <p className="text-gray-400 mt-2">Sign in to manage your fleet.</p>
-                </div>
+                    <div className="mb-5 flex h-11 w-11 items-center justify-center rounded-xl bg-blue-600 shadow-lg shadow-blue-600/30"><LockKeyhole size={20} /></div>
+                    <h1 className="text-3xl font-bold tracking-tight text-white">
+                        FleetManager
+                    </h1>
 
+                    <p className="text-gray-400 mt-2">
+                        Sign in to manage your fleet.
+                    </p>
+                </div>
 
                 {error && (
                     <div className="bg-red-600/10 border border-red-600/30 text-red-400 rounded-xl px-4 py-3 text-sm">
@@ -55,46 +54,56 @@ function Login() {
                     </div>
                 )}
 
-
                 <div>
-                    <label className="block text-sm text-gray-400 mb-1">Email</label>
-                    <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white outline-none focus:ring-2 focus:ring-blue-600 transition"
-                    required
-                    />
+                    <label htmlFor="login-email" className="mb-1.5 block text-sm font-medium text-slate-300">
+                        Email
+                    </label>
+
+                    <div className="relative"><Mail className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={17} /><input
+                        id="login-email"
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        className="w-full rounded-xl border border-slate-700 bg-slate-950 py-3 pl-11 pr-4 text-white outline-none transition placeholder:text-slate-500 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/15"
+                        required
+                    /></div>
                 </div>
 
-
                 <div>
-                    <label className="block text-sm text-gray-400 mb-1">Password</label>
-                    <input
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white outline-none focus:ring-2 focus:ring-blue-600 transition"
-                    required
-                    />
-                </div>
+                    <label htmlFor="login-password" className="mb-1.5 block text-sm font-medium text-slate-300">
+                        Password
+                    </label>
 
+                    <div className="relative"><input
+                        id="login-password"
+                        type={showPassword ? "text" : "password"}
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 pr-12 text-white outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/15"
+                        required
+                    /><button type="button" aria-label={showPassword ? "Hide password" : "Show password"} onClick={() => setShowPassword((value) => !value)} className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-slate-400 hover:text-white">{showPassword ? <EyeOff size={18} /> : <Eye size={18} />}</button></div>
+                </div>
 
                 <button
-                type="submit"
-                disabled={loading}
-                className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 transition px-6 py-3 rounded-xl font-medium"
+                    type="submit"
+                    disabled={loading}
+                    className="w-full rounded-xl bg-blue-600 px-6 py-3 font-semibold text-white shadow-lg shadow-blue-600/25 transition hover:-translate-y-0.5 hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                     {loading ? "Signing in..." : "Sign In"}
                 </button>
 
-
+                <div className="text-center text-sm text-gray-400">
+                    Don't have an account?{" "}
+                    <Link
+                        to="/register"
+                        className="text-blue-400 hover:text-blue-300 font-medium"
+                    >
+                        Create Account
+                    </Link>
+                </div>
             </form>
-
         </div>
-
     );
-
 }
 
 export default Login;

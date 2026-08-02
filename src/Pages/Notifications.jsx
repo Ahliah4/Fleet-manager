@@ -70,10 +70,10 @@ function Notifications() {
         <section className="space-y-6">
             <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                 <div>
-                    <h1 className="text-4xl font-bold text-slate-900">
+                    <h1 className="page-title">
                         Notifications
                     </h1>
-                    <p className="mt-2 text-gray-500">
+                    <p className="page-description">
                         Track document alerts and fleet activity.
                     </p>
                 </div>
@@ -115,4 +115,3 @@ function Notifications() {
 }
 
 export default Notifications;
-

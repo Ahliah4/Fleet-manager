@@ -1,6 +1,6 @@
 function EmptyState({ title, message, action }) {
     return (
-        <div className="rounded-2xl border border-dashed border-blue-200 bg-blue-50/60 p-8 text-center">
+        <div className="rounded-2xl border border-dashed border-blue-200 bg-gradient-to-br from-blue-50 to-white p-8 text-center shadow-sm sm:p-12">
             <h3 className="text-lg font-semibold text-slate-900">
                 {title}
             </h3>
@@ -17,4 +17,3 @@ function EmptyState({ title, message, action }) {
 }
 
 export default EmptyState;
-

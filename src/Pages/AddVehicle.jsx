@@ -73,8 +73,8 @@ export default function AddVehicle() {
     <section className="mx-auto max-w-4xl space-y-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-4xl font-bold text-slate-900">Add Vehicle</h1>
-          <p className="mt-2 text-gray-500">
+          <h1 className="page-title">Add Vehicle</h1>
+          <p className="page-description">
             Register a fleet vehicle and its document expiry dates.
           </p>
         </div>

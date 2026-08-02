@@ -22,9 +22,9 @@ function NotificationCard({ notification, onMarkRead, onDelete }) {
     const Icon = icons[notification.type] || Bell;
 
     return (
-        <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm transition-all hover:-translate-y-1 hover:shadow-xl">
+        <article className={`rounded-2xl border bg-white p-5 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-lg ${notification.is_read ? "border-slate-200" : "border-blue-200 shadow-blue-950/[0.04]"}`}>
             <div className="flex gap-4">
-                <div className="h-fit rounded-xl bg-blue-50 p-3 text-blue-600">
+                <div className={`h-fit rounded-xl p-3 ${notification.is_read ? "bg-slate-100 text-slate-600" : "bg-blue-50 text-blue-600"}`}>
                     <Icon size={22} />
                 </div>
 
@@ -39,9 +39,7 @@ function NotificationCard({ notification, onMarkRead, onDelete }) {
                             </p>
                         </div>
 
-                        <StatusBadge type={notification.is_read ? "read" : "unread"}>
-                            {notification.is_read ? "Read" : "Unread"}
-                        </StatusBadge>
+                        <div className="flex items-center gap-2"><StatusBadge type={notification.is_read ? "read" : "unread"}>{notification.is_read ? "Read" : "Unread"}</StatusBadge>{!notification.is_read && <span className="h-2 w-2 rounded-full bg-blue-600" aria-label="Unread notification" />}</div>
                     </div>
 
                     <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
@@ -72,9 +70,8 @@ function NotificationCard({ notification, onMarkRead, onDelete }) {
                     </div>
                 </div>
             </div>
-        </div>
+        </article>
     );
 }
 
 export default NotificationCard;
-

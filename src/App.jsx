@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 
 import { AuthProvider } from "./lib/authContext";
@@ -5,23 +6,28 @@ import ProtectedRoute from "./Components/protectedRoute";
 
 import DashboardLayout from "./Layouts/dashboardLayout";
 
-import Dashboard from "./Pages/Dashboard";
-import Vehicles from "./Pages/Vehicles";
-import AddVehicle from "./Pages/AddVehicle";
-import EditVehicle from "./Pages/EditVehicle";
-import Notifications from "./Pages/Notifications";
-import Reports from "./Pages/reports";
-import VehicleDetail from "./Pages/vehicleDetail";
-import Settings from "./Pages/settings";
-import Login from "./Pages/Login";
+import Loader from "./Components/Loader";
+
+const Dashboard = lazy(() => import("./Pages/Dashboard"));
+const Vehicles = lazy(() => import("./Pages/Vehicles"));
+const AddVehicle = lazy(() => import("./Pages/AddVehicle"));
+const EditVehicle = lazy(() => import("./Pages/EditVehicle"));
+const VehicleDetail = lazy(() => import("./Pages/vehicleDetail"));
+const Notifications = lazy(() => import("./Pages/Notifications"));
+const Reports = lazy(() => import("./Pages/reports"));
+const Settings = lazy(() => import("./Pages/settings"));
+const Login = lazy(() => import("./Pages/Login"));
+const Register = lazy(() => import("./Pages/Register"));
 
 function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
-        <Routes>
+        <Suspense fallback={<main className="min-h-screen bg-slate-50 p-6"><Loader rows={4} /></main>}>
+          <Routes>
 
           <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
 
           <Route
             path="/"
@@ -44,10 +50,7 @@ function App() {
               element={<VehicleDetail />}
             />
 
-            <Route
-              path="vehicles/:id/edit"
-              element={<EditVehicle />}
-            />
+            <Route path="vehicles/:id/edit" element={<EditVehicle />} />
 
             <Route
               path="add-vehicle"
@@ -55,14 +58,11 @@ function App() {
             />
 
             <Route
-              path="notifications"
-              element={<Notifications />}
-            />
-
-            <Route
               path="reports"
               element={<Reports />}
             />
+
+            <Route path="notifications" element={<Notifications />} />
 
             <Route
               path="settings"
@@ -71,7 +71,8 @@ function App() {
 
           </Route>
 
-        </Routes>
+          </Routes>
+        </Suspense>
       </BrowserRouter>
     </AuthProvider>
   );

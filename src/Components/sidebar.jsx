@@ -6,12 +6,12 @@ import {
   FileText,
   Settings,
   LogOut,
-  Bell
+  Bell, X
 } from "lucide-react";
 import { useAuth } from "../lib/authContext";
 
 
-function Sidebar() {
+function Sidebar({ open, onClose }) {
 
     const { signOut } = useAuth();
     const navigate = useNavigate();
@@ -32,23 +32,27 @@ function Sidebar() {
 
 
     return (
+        <>
+        {open && <button aria-label="Close navigation" className="fixed inset-0 z-40 bg-slate-950/40 lg:hidden" onClick={onClose} />}
+        <aside className={`fixed inset-y-0 left-0 z-50 flex min-h-screen w-72 flex-col border-r border-slate-800 bg-slate-950 p-4 text-white shadow-2xl transition-transform duration-300 lg:sticky lg:top-0 lg:z-0 lg:translate-x-0 lg:shadow-none ${open ? "translate-x-0" : "-translate-x-full"}`}>
 
-        <aside className="w-72 min-h-screen bg-gradient-to-b from-blue-600 to-blue-800 p-6 flex flex-col text-white">
+            <div className="mb-9 flex items-center justify-between px-2">
+              <div className="flex items-center gap-3">
 
-            <div className="flex items-center gap-3 mb-10">
-
-                <div className="bg-white/20 p-2 rounded-xl">
+                <div className="rounded-xl bg-blue-500 p-2 shadow-lg shadow-blue-500/20">
                     <Car size={24} />
                 </div>
 
-                <h1 className="text-xl font-bold">
+                <h1 className="text-lg font-bold tracking-tight">
                     Fleet Manager
                 </h1>
 
+              </div>
+              <button aria-label="Close navigation" onClick={onClose} className="rounded-lg p-2 text-slate-400 hover:bg-white/10 hover:text-white lg:hidden"><X size={18} /></button>
             </div>
 
 
-            <nav className="space-y-2 flex-1">
+            <nav aria-label="Main navigation" className="flex-1 space-y-1">
 
                 {menuItems.map((item) => {
 
@@ -61,10 +65,10 @@ function Sidebar() {
                         to={item.path}
                         end={item.path === "/"}
                         className={({ isActive }) =>
-                            `flex items-center gap-4 px-5 py-3 rounded-xl transition-all duration-300
+                            `flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-all duration-200
                             ${isActive
-                                ? "bg-white text-blue-700 shadow-md font-medium"
-                                : "text-blue-100 hover:bg-white/20 hover:translate-x-1"
+                                ? "bg-blue-600 text-white shadow-lg shadow-blue-950/30"
+                                : "text-slate-400 hover:bg-white/10 hover:text-white"
                             }`
                         }
                         >
@@ -84,7 +88,7 @@ function Sidebar() {
 
             <button
             onClick={handleSignOut}
-            className="flex items-center gap-4 px-5 py-3 rounded-xl text-blue-100 hover:bg-white/20 hover:translate-x-1 transition-all duration-300 w-full"
+            className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-slate-400 transition hover:bg-red-500/10 hover:text-red-300"
             >
 
                 <LogOut size={20} />
@@ -95,6 +99,7 @@ function Sidebar() {
 
 
         </aside>
+        </>
 
     );
 

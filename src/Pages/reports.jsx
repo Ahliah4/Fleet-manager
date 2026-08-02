@@ -99,10 +99,10 @@ function Reports() {
         <section className="space-y-6">
             <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                 <div>
-                    <h1 className="text-4xl font-bold text-slate-900">
+                    <h1 className="page-title">
                         Reports
                     </h1>
-                    <p className="mt-2 text-gray-500">
+                    <p className="page-description">
                         Compliance statistics and fleet document exports.
                     </p>
                 </div>
@@ -137,7 +137,7 @@ function Reports() {
                 <>
                     <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-4">
                         {cards.map((card) => (
-                            <Card key={card.label}>
+                            <Card key={card.label} className="hover:-translate-y-0.5 hover:shadow-md">
                                 <div className="flex items-center justify-between">
                                     <p className="text-sm font-medium text-slate-500">{card.label}</p>
                                     <StatusBadge type={card.type}>Fleet</StatusBadge>
@@ -149,7 +149,7 @@ function Reports() {
 
                     <div className="grid gap-6 xl:grid-cols-2">
                         <Card>
-                            <h2 className="text-xl font-bold text-slate-900">
+                            <h2 className="text-lg font-semibold text-slate-950">
                                 Compliance Breakdown
                             </h2>
                             <div className="mt-5 h-72">
@@ -167,7 +167,7 @@ function Reports() {
                         </Card>
 
                         <Card>
-                            <h2 className="text-xl font-bold text-slate-900">
+                            <h2 className="text-lg font-semibold text-slate-950">
                                 Monthly Registrations
                             </h2>
                             <div className="mt-5 h-72">

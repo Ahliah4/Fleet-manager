@@ -35,13 +35,13 @@ function VehicleForm({
     onSubmit,
     onCancel,
 }) {
-    const inputClass = "w-full rounded-xl border border-gray-100 bg-white px-4 py-3 text-slate-900 shadow-sm outline-none transition focus:ring-2 focus:ring-blue-500";
-    const labelClass = "mb-1 block text-sm font-medium text-slate-600";
+    const inputClass = "app-input";
+    const labelClass = "mb-1.5 block text-sm font-medium text-slate-700";
 
     return (
         <form onSubmit={onSubmit} className="space-y-6">
             <Card>
-                <h2 className="text-lg font-semibold text-slate-900">
+                <h2 className="text-lg font-semibold text-slate-950">
                     Vehicle Information
                 </h2>
 
@@ -117,7 +117,7 @@ function VehicleForm({
             </Card>
 
             <Card>
-                <h2 className="text-lg font-semibold text-slate-900">
+                <h2 className="text-lg font-semibold text-slate-950">
                     Document Expiry Dates
                 </h2>
 
@@ -174,4 +174,3 @@ function VehicleForm({
 
 export { initialVehicleForm, normaliseVehicleForm };
 export default VehicleForm;
-

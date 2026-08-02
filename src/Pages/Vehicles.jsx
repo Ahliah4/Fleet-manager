@@ -98,10 +98,10 @@ function Vehicles() {
         <section className="space-y-6">
             <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                 <div>
-                    <h1 className="text-4xl font-bold text-slate-900">
+                    <h1 className="page-title">
                         Vehicles
                     </h1>
-                    <p className="mt-2 text-gray-500">
+                    <p className="page-description">
                         Manage your fleet vehicles and document compliance.
                     </p>
                 </div>
@@ -123,7 +123,8 @@ function Vehicles() {
                     <select
                         value={filter}
                         onChange={(event) => setFilter(event.target.value)}
-                        className="rounded-xl border border-gray-100 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm outline-none transition focus:ring-2 focus:ring-blue-500"
+                        aria-label="Filter vehicles by compliance status"
+                        className="app-input min-w-32"
                     >
                         {filters.map((item) => (
                             <option key={item.value} value={item.value}>
@@ -135,7 +136,8 @@ function Vehicles() {
                     <select
                         value={sortBy}
                         onChange={(event) => handleSortChange(event.target.value)}
-                        className="rounded-xl border border-gray-100 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm outline-none transition focus:ring-2 focus:ring-blue-500"
+                        aria-label="Sort vehicles by"
+                        className="app-input min-w-36"
                     >
                         {sortOptions.map((item) => (
                             <option key={item.label} value={item.value}>
@@ -147,7 +149,8 @@ function Vehicles() {
                     <select
                         value={sortDirection}
                         onChange={(event) => setSortDirection(event.target.value)}
-                        className="rounded-xl border border-gray-100 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm outline-none transition focus:ring-2 focus:ring-blue-500"
+                        aria-label="Sort direction"
+                        className="app-input min-w-32"
                     >
                         <option value="asc">Ascending</option>
                         <option value="desc">Descending</option>
@@ -170,10 +173,10 @@ function Vehicles() {
                     action={<Button to="/add-vehicle">Add Vehicle</Button>}
                 />
             ) : (
-                <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+                <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm shadow-slate-950/[0.03]">
                     <div className="overflow-x-auto">
                         <table className="w-full min-w-[880px] text-left text-sm text-slate-700">
-                            <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+                            <thead className="sticky top-0 z-10 bg-slate-50 text-xs uppercase tracking-wider text-slate-500">
                                 <tr>
                                     <th className="p-4">Registration</th>
                                     <th className="p-4">Make</th>
@@ -196,7 +199,7 @@ function Vehicles() {
                                     rows.map((vehicle) => (
                                         <tr
                                             key={vehicle.id}
-                                            className="border-t border-gray-100 transition hover:bg-slate-50"
+                                            className="border-t border-slate-100 transition hover:bg-blue-50/40"
                                         >
                                             <td className="p-4 font-semibold text-slate-900">{vehicle.registration_number}</td>
                                             <td className="p-4">{vehicle.make}</td>

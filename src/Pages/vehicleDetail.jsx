@@ -100,7 +100,7 @@ function VehicleDetail() {
                         Back
                     </Button>
 
-                    <h1 className="text-4xl font-bold text-slate-900">
+                    <h1 className="page-title">
                         {vehicle.registration_number}
                     </h1>
                     <p className="mt-2 text-gray-500">
@@ -152,7 +152,7 @@ function VehicleDetail() {
                             ["Colour", vehicle.colour || "Not set"],
                             ["Created", formatDate(vehicle.created_at)],
                         ].map(([label, value]) => (
-                            <div key={label} className="rounded-xl bg-slate-50 p-4">
+                            <div key={label} className="rounded-xl border border-slate-100 bg-slate-50/80 p-4">
                                 <dt className="text-xs uppercase text-slate-400">{label}</dt>
                                 <dd className="mt-1 font-semibold text-slate-900">{value}</dd>
                             </div>
@@ -168,7 +168,7 @@ function VehicleDetail() {
                         {documents.map((document) => (
                             <div
                                 key={document.name}
-                                className="flex items-center justify-between rounded-xl border border-gray-100 p-4 transition hover:border-blue-500 hover:shadow-lg"
+                                className="flex items-center justify-between rounded-xl border border-slate-200 p-4 transition hover:border-blue-300 hover:bg-blue-50/40"
                             >
                                 <div>
                                     <p className="font-semibold text-slate-900">{document.name}</p>
