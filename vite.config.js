@@ -5,17 +5,16 @@ import { VitePWA } from "vite-plugin-pwa";
 export default defineConfig({
   plugins: [
     react(),
-
     VitePWA({
       registerType: "autoUpdate",
-
       includeAssets: [
         "favicon.png",
         "icon-192.png",
-        "icon-512.png"
+        "icon-512.png",
+        "apple-touch-icon.png",
       ],
-
       manifest: {
+        id: "/",
         name: "Fleet Manager",
         short_name: "FleetManager",
         description: "Fleet Document Management System",
@@ -24,26 +23,26 @@ export default defineConfig({
         display: "standalone",
         orientation: "portrait",
         start_url: "/",
-
+        scope: "/",
         icons: [
           {
             src: "icon-192.png",
             sizes: "192x192",
-            type: "image/png"
-          },
-          {
-            src: "icon-512.png",
-            sizes: "512x512",
-            type: "image/png"
+            type: "image/png",
           },
           {
             src: "icon-512.png",
             sizes: "512x512",
             type: "image/png",
-            purpose: "maskable"
-          }
-        ]
-      }
-    })
-  ]
+          },
+          {
+            src: "icon-512.png",
+            sizes: "512x512",
+            type: "image/png",
+            purpose: "maskable",
+          },
+        ],
+      },
+    }),
+  ],
 });
