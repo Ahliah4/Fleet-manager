@@ -9,7 +9,7 @@ function SearchInput({ value, onChange, placeholder = "Search..." }) {
                 value={value}
                 onChange={(event) => onChange(event.target.value)}
                 placeholder={placeholder}
-                className="app-input py-3 pl-11"
+                className="app-input min-h-[44px] py-3 pl-11"
                 type="text"
             />
         </div>

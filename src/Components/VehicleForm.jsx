@@ -157,13 +157,13 @@ function VehicleForm({
                 </div>
             </Card>
 
-            <div className="flex flex-wrap gap-3">
-                <Button type="submit" disabled={saving}>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <Button type="submit" disabled={saving} className="w-full">
                     {saving ? "Saving..." : submitLabel}
                 </Button>
 
                 {onCancel && (
-                    <Button variant="secondary" onClick={onCancel}>
+                    <Button variant="secondary" onClick={onCancel} className="w-full">
                         Cancel
                     </Button>
                 )}

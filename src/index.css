@@ -20,7 +20,7 @@
 }
 
 @layer components {
-  .app-input { @apply w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm transition placeholder:text-slate-400 hover:border-slate-300 focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10; }
-  .page-title { @apply text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl; }
-  .page-description { @apply mt-2 text-sm leading-6 text-slate-500 sm:text-base; }
+  .app-input { @apply w-full min-h-[44px] rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm transition placeholder:text-slate-400 hover:border-slate-300 focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10; }
+  .page-title { @apply text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl; }
+  .page-description { @apply mt-1.5 text-sm leading-6 text-slate-500 sm:mt-2 sm:text-base; }
 }

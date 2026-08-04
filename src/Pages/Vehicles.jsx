@@ -95,8 +95,8 @@ function Vehicles() {
     };
 
     return (
-        <section className="space-y-6">
-            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+        <section className="space-y-4 sm:space-y-6">
+            <div className="flex flex-col gap-3 sm:gap-4 md:flex-row md:items-start md:justify-between">
                 <div>
                     <h1 className="page-title">
                         Vehicles
@@ -106,14 +106,14 @@ function Vehicles() {
                     </p>
                 </div>
 
-                <Button to="/add-vehicle">
+                <Button to="/add-vehicle" className="w-full sm:w-auto">
                     <Plus size={18} />
                     Add Vehicle
                 </Button>
             </div>
 
             <Card className="hover:translate-y-0">
-                <div className="grid gap-4 lg:grid-cols-[1fr_auto_auto_auto]">
+                <div className="grid gap-3 sm:gap-4 lg:grid-cols-[1fr_auto_auto_auto]">
                     <SearchInput
                         value={search}
                         onChange={setSearch}
@@ -175,7 +175,7 @@ function Vehicles() {
             ) : (
                 <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm shadow-slate-950/[0.03]">
                     <div className="overflow-x-auto">
-                        <table className="w-full min-w-[880px] text-left text-sm text-slate-700">
+                        <table className="w-full min-w-[760px] text-left text-sm text-slate-700">
                             <thead className="sticky top-0 z-10 bg-slate-50 text-xs uppercase tracking-wider text-slate-500">
                                 <tr>
                                     <th className="p-4">Registration</th>
@@ -216,7 +216,7 @@ function Vehicles() {
                                                 <Button
                                                     to={`/vehicles/${vehicle.id}`}
                                                     variant="secondary"
-                                                    className="px-3 py-2"
+                                                    className="w-full px-3 py-2 sm:w-auto"
                                                 >
                                                     <Eye size={16} />
                                                     View
