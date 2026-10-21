@@ -6,7 +6,7 @@ import {
   FileText,
   Settings,
   LogOut,
-  Bell, X
+  Bell, Users, X
 } from "lucide-react";
 import { useAuth } from "../lib/authContext";
 
@@ -22,6 +22,7 @@ function Sidebar({ open, onClose }) {
         { name: "Add Vehicle", path: "/add-vehicle", icon: PlusCircle },
         { name: "Notifications", path: "/notifications", icon: Bell },
         { name: "Reports", path: "/reports", icon: FileText },
+        { name: "Team", path: "/team", icon: Users },
         { name: "Settings", path: "/settings", icon: Settings },
     ];
 
@@ -34,7 +35,7 @@ function Sidebar({ open, onClose }) {
     return (
         <>
         {open && <button aria-label="Close navigation" className="fixed inset-0 z-40 bg-slate-950/40 lg:hidden" onClick={onClose} />}
-        <aside className={`fixed inset-y-0 left-0 z-50 flex min-h-screen w-72 flex-col border-r border-slate-800 bg-slate-950 p-4 text-white shadow-2xl transition-transform duration-300 lg:sticky lg:top-0 lg:z-0 lg:translate-x-0 lg:shadow-none ${open ? "translate-x-0" : "-translate-x-full"}`}>
+        <aside className={`fixed inset-y-0 left-0 z-50 flex min-h-screen w-72 flex-col border-r border-slate-800 bg-slate-950 p-4 pt-[max(1rem,env(safe-area-inset-top))] text-white shadow-2xl transition-transform duration-300 lg:sticky lg:top-0 lg:z-0 lg:translate-x-0 lg:shadow-none ${open ? "translate-x-0" : "-translate-x-full"}`}>
 
             <div className="mb-9 flex items-center justify-between px-2">
               <div className="flex items-center gap-3">
@@ -64,6 +65,7 @@ function Sidebar({ open, onClose }) {
                         key={item.name}
                         to={item.path}
                         end={item.path === "/"}
+                        onClick={onClose}
                         className={({ isActive }) =>
                             `flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-all duration-200
                             ${isActive

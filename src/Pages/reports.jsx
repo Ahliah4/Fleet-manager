@@ -17,31 +17,16 @@ import Card from "../Components/Card";
 import EmptyState from "../Components/EmptyState";
 import Loader from "../Components/Loader";
 import StatusBadge from "../Components/StatusBadge";
+import { vehiclesToCsv } from "../lib/csv";
+import { describeError } from "../lib/errors";
+import { applyFleetScope } from "../lib/fleetScope";
 import { supabase } from "../lib/supabaseClient";
 import { addStatus, formatDate, getMonthlyRegistrations } from "../lib/vehicleHelpers";
 
 const chartColors = ["#16a34a", "#f59e0b", "#dc2626"];
 
 function exportToCSV(vehicles) {
-    const headers = ["Registration", "Make", "Model", "Year", "Colour", "Insurance Expiry", "Road Tax Expiry", "Roadworthy Expiry", "Status"];
-
-    const rows = vehicles.map((vehicle) => [
-        vehicle.registration_number,
-        vehicle.make,
-        vehicle.model,
-        vehicle.year,
-        vehicle.colour || "",
-        vehicle.insurance_expiry || "",
-        vehicle.road_tax_expiry || "",
-        vehicle.roadworthy_expiry || "",
-        vehicle.status.label,
-    ]);
-
-    const csvContent = [headers, ...rows]
-        .map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(","))
-        .join("\n");
-
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8" });
+    const blob = new Blob([vehiclesToCsv(vehicles)], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
@@ -57,18 +42,24 @@ function Reports() {
 
     useEffect(() => {
         async function fetchVehicles() {
-            const { data, error: fetchError } = await supabase
-                .from("vehicles")
-                .select("*")
-                .order("created_at", { ascending: false });
+            try {
+                let query = supabase.from("vehicles").select("*");
+                query = await applyFleetScope(query);
 
-            if (fetchError) {
-                setError("Failed to load report data.");
-            } else {
-                setVehicles(data || []);
+                const { data, error: fetchError } = await query.order("created_at", {
+                    ascending: false,
+                });
+
+                if (fetchError) {
+                    setError(describeError(fetchError, "Failed to load report data."));
+                } else {
+                    setVehicles(data || []);
+                }
+            } catch (loadError) {
+                setError(describeError(loadError, "Failed to load report data."));
+            } finally {
+                setLoading(false);
             }
-
-            setLoading(false);
         }
 
         fetchVehicles();
@@ -97,6 +88,13 @@ function Reports() {
 
     return (
         <section className="space-y-6">
+            <div className="hidden print:block">
+                <h1 className="text-2xl font-bold text-slate-950">Fleet compliance report</h1>
+                <p className="mt-1 text-sm text-slate-500">
+                    Generated {new Date().toLocaleDateString()} · {vehicles.length} vehicle{vehicles.length === 1 ? "" : "s"}
+                </p>
+            </div>
+
             <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                 <div>
                     <h1 className="page-title">
@@ -107,7 +105,7 @@ function Reports() {
                     </p>
                 </div>
 
-                <div className="flex flex-wrap gap-3">
+                <div className="flex flex-wrap gap-3 print:hidden">
                     <Button onClick={() => exportToCSV(withStatus)} disabled={vehicles.length === 0}>
                         <Download size={18} />
                         Export CSV

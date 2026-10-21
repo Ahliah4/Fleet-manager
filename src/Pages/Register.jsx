@@ -29,6 +29,11 @@ function Register() {
             return;
         }
 
+        if (password.length < 8) {
+            setError("Password must be at least 8 characters.");
+            return;
+        }
+
         setLoading(true);
 
         const { data, error } = await signUp(
@@ -44,7 +49,13 @@ function Register() {
             return;
         }
 
-        setSuccess("Account created successfully! You can now sign in.");
+        if (data?.session) {
+            // Email confirmation is disabled; the user is signed in already.
+            navigate("/", { replace: true });
+            return;
+        }
+
+        setSuccess("Account created! Check your email to confirm it, then sign in.");
 
         setTimeout(() => {
             navigate("/login");

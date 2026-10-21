@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Eye, Plus } from "lucide-react";
 
 import Button from "../Components/Button";
@@ -7,6 +7,9 @@ import EmptyState from "../Components/EmptyState";
 import Loader from "../Components/Loader";
 import SearchInput from "../Components/SearchInput";
 import StatusBadge from "../Components/StatusBadge";
+import { describeError } from "../lib/errors";
+import { applyFleetScope, getCurrentProfile } from "../lib/fleetScope";
+import { useRealtimeRefresh } from "../lib/hooks";
 import { supabase } from "../lib/supabaseClient";
 import { addStatus, formatDate } from "../lib/vehicleHelpers";
 
@@ -26,10 +29,12 @@ const sortOptions = [
     { label: "Insurance expiry", value: "insurance_expiry" },
     { label: "Road tax expiry", value: "road_tax_expiry" },
     { label: "Roadworthy expiry", value: "roadworthy_expiry" },
+    { label: "Next service", value: "next_service_date" },
 ];
 
 function Vehicles() {
     const [vehicles, setVehicles] = useState([]);
+    const [profile, setProfile] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [search, setSearch] = useState("");
@@ -37,24 +42,38 @@ function Vehicles() {
     const [sortBy, setSortBy] = useState("created_at");
     const [sortDirection, setSortDirection] = useState("desc");
 
-    useEffect(() => {
-        async function fetchVehicles() {
-            const { data, error: fetchError } = await supabase
-                .from("vehicles")
-                .select("*")
-                .order("created_at", { ascending: false });
+    const loadVehicles = useCallback(async ({ silent = false } = {}) => {
+        if (!silent) setLoading(true);
+
+        try {
+            const current = await getCurrentProfile();
+            setProfile(current);
+
+            let query = supabase.from("vehicles").select("*");
+            query = await applyFleetScope(query);
+
+            const { data, error: fetchError } = await query.order("created_at", {
+                ascending: false,
+            });
 
             if (fetchError) {
-                setError("Failed to load vehicles.");
+                setError(describeError(fetchError, "Failed to load vehicles."));
             } else {
                 setVehicles(data || []);
+                setError(null);
             }
-
+        } catch (loadError) {
+            setError(describeError(loadError, "Failed to load vehicles."));
+        } finally {
             setLoading(false);
         }
-
-        fetchVehicles();
     }, []);
+
+    useEffect(() => {
+        loadVehicles();
+    }, [loadVehicles]);
+
+    useRealtimeRefresh("vehicles", profile?.fleet_id, () => loadVehicles({ silent: true }));
 
     const rows = useMemo(() => {
         const query = search.trim().toLowerCase();
@@ -98,9 +117,7 @@ function Vehicles() {
         <section className="space-y-4 sm:space-y-6">
             <div className="flex flex-col gap-3 sm:gap-4 md:flex-row md:items-start md:justify-between">
                 <div>
-                    <h1 className="page-title">
-                        Vehicles
-                    </h1>
+                    <h1 className="page-title">Vehicles</h1>
                     <p className="page-description">
                         Manage your fleet vehicles and document compliance.
                     </p>
@@ -159,7 +176,7 @@ function Vehicles() {
             </Card>
 
             {error && (
-                <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-600">
+                <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-600">
                     {error}
                 </div>
             )}
@@ -172,31 +189,108 @@ function Vehicles() {
                     message="Add the first vehicle to start tracking fleet documents and reports."
                     action={<Button to="/add-vehicle">Add Vehicle</Button>}
                 />
+            ) : rows.length === 0 ? (
+                <EmptyState
+                    title="No matching vehicles"
+                    message="No vehicles match your search or filters. Try clearing the search."
+                    action={
+                        <Button
+                            variant="secondary"
+                            onClick={() => {
+                                setSearch("");
+                                setFilter("all");
+                            }}
+                        >
+                            Clear filters
+                        </Button>
+                    }
+                />
             ) : (
-                <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm shadow-slate-950/[0.03]">
-                    <div className="overflow-x-auto">
-                        <table className="w-full min-w-[760px] text-left text-sm text-slate-700">
-                            <thead className="sticky top-0 z-10 bg-slate-50 text-xs uppercase tracking-wider text-slate-500">
-                                <tr>
-                                    <th className="p-4">Registration</th>
-                                    <th className="p-4">Make</th>
-                                    <th className="p-4">Model</th>
-                                    <th className="p-4">Year</th>
-                                    <th className="p-4">Insurance</th>
-                                    <th className="p-4">Road Tax</th>
-                                    <th className="p-4">Status</th>
-                                    <th className="p-4">Action</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {rows.length === 0 ? (
+                <>
+                    <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+                        Showing {rows.length} of {vehicles.length} vehicles
+                    </p>
+
+                    {/* Mobile-first card list */}
+                    <div className="space-y-3 md:hidden">
+                        {rows.map((vehicle) => (
+                            <article
+                                key={vehicle.id}
+                                className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm shadow-slate-950/[0.03]"
+                            >
+                                <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                        <p className="truncate text-base font-bold text-slate-950">
+                                            {vehicle.registration_number}
+                                        </p>
+                                        <p className="mt-0.5 truncate text-sm text-slate-500">
+                                            {vehicle.make} {vehicle.model} · {vehicle.year}
+                                        </p>
+                                    </div>
+
+                                    <StatusBadge type={vehicle.statusType}>
+                                        {vehicle.status.label}
+                                    </StatusBadge>
+                                </div>
+
+                                <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                                    <div className="rounded-xl bg-slate-50 p-3">
+                                        <dt className="text-[11px] uppercase tracking-wide text-slate-400">
+                                            Insurance
+                                        </dt>
+                                        <dd className="mt-1 font-medium text-slate-700">
+                                            {formatDate(vehicle.insurance_expiry)}
+                                        </dd>
+                                    </div>
+                                    <div className="rounded-xl bg-slate-50 p-3">
+                                        <dt className="text-[11px] uppercase tracking-wide text-slate-400">
+                                            Road Tax
+                                        </dt>
+                                        <dd className="mt-1 font-medium text-slate-700">
+                                            {formatDate(vehicle.road_tax_expiry)}
+                                        </dd>
+                                    </div>
+                                    <div className="col-span-2 rounded-xl bg-slate-50 p-3">
+                                        <dt className="text-[11px] uppercase tracking-wide text-slate-400">
+                                            Next service
+                                        </dt>
+                                        <dd className="mt-1 font-medium text-slate-700">
+                                            {formatDate(vehicle.next_service_date)}
+                                        </dd>
+                                    </div>
+                                </dl>
+
+                                <Button
+                                    to={`/vehicles/${vehicle.id}`}
+                                    variant="secondary"
+                                    className="mt-3 w-full"
+                                >
+                                    <Eye size={16} />
+                                    View details
+                                </Button>
+                            </article>
+                        ))}
+                    </div>
+
+                    {/* Desktop table */}
+                    <div className="hidden overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm shadow-slate-950/[0.03] md:block">
+                        <div className="overflow-x-auto">
+                            <table className="w-full min-w-[860px] text-left text-sm text-slate-700">
+                                <thead className="sticky top-0 z-10 bg-slate-50 text-xs uppercase tracking-wider text-slate-500">
                                     <tr>
-                                        <td colSpan="8" className="p-8 text-center text-slate-500">
-                                            No vehicles match your search or filters.
-                                        </td>
+                                        <th className="p-4">Registration</th>
+                                        <th className="p-4">Make</th>
+                                        <th className="p-4">Model</th>
+                                        <th className="p-4">Year</th>
+                                        <th className="p-4">Insurance</th>
+                                        <th className="p-4">Road Tax</th>
+                                        <th className="p-4">Service</th>
+                                        <th className="p-4">Status</th>
+                                        <th className="p-4">Action</th>
                                     </tr>
-                                ) : (
-                                    rows.map((vehicle) => (
+                                </thead>
+                                <tbody>
+                                    {rows.map((vehicle) => (
                                         <tr
                                             key={vehicle.id}
                                             className="border-t border-slate-100 transition hover:bg-blue-50/40"
@@ -207,6 +301,7 @@ function Vehicles() {
                                             <td className="p-4">{vehicle.year}</td>
                                             <td className="p-4">{formatDate(vehicle.insurance_expiry)}</td>
                                             <td className="p-4">{formatDate(vehicle.road_tax_expiry)}</td>
+                                            <td className="p-4">{formatDate(vehicle.next_service_date)}</td>
                                             <td className="p-4">
                                                 <StatusBadge type={vehicle.statusType}>
                                                     {vehicle.status.label}
@@ -223,12 +318,12 @@ function Vehicles() {
                                                 </Button>
                                             </td>
                                         </tr>
-                                    ))
-                                )}
-                            </tbody>
-                        </table>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
-                </div>
+                </>
             )}
         </section>
     );

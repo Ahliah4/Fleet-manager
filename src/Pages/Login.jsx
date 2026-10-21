@@ -4,19 +4,26 @@ import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../lib/authContext";
 
 function Login() {
-    const { signIn } = useAuth();
+    const { signIn, resetPassword } = useAuth();
     const navigate = useNavigate();
 
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [error, setError] = useState(null);
+    const [notice, setNotice] = useState(() =>
+        new URLSearchParams(window.location.search).get("passwordUpdated")
+            ? "Your password has been updated. Sign in with your new password."
+            : null
+    );
     const [loading, setLoading] = useState(false);
+    const [resetting, setResetting] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
 
         setError(null);
+        setNotice(null);
         setLoading(true);
 
         const { error } = await signIn(email, password);
@@ -29,6 +36,32 @@ function Login() {
         }
 
         navigate("/");
+    };
+
+    const handleForgotPassword = async () => {
+        setError(null);
+        setNotice(null);
+
+        if (!email.trim()) {
+            setError("Enter your email address first, then tap “Forgot password”.");
+            return;
+        }
+
+        setResetting(true);
+        try {
+            const { error: resetError } = await resetPassword(email.trim());
+
+            if (resetError) {
+                setError(resetError.message);
+                return;
+            }
+
+            setNotice(`If an account exists for ${email.trim()}, a password reset link will be sent. Check your inbox.`);
+        } catch (resetError) {
+            setError(resetError?.message || "Could not send the password reset email.");
+        } finally {
+            setResetting(false);
+        }
     };
 
     return (
@@ -51,6 +84,12 @@ function Login() {
                 {error && (
                     <div className="bg-red-600/10 border border-red-600/30 text-red-400 rounded-xl px-4 py-3 text-sm">
                         {error}
+                    </div>
+                )}
+
+                {notice && (
+                    <div className="bg-emerald-600/10 border border-emerald-600/30 text-emerald-400 rounded-xl px-4 py-3 text-sm">
+                        {notice}
                     </div>
                 )}
 
@@ -82,6 +121,17 @@ function Login() {
                         className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 pr-12 text-white outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/15"
                         required
                     /><button type="button" aria-label={showPassword ? "Hide password" : "Show password"} onClick={() => setShowPassword((value) => !value)} className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-slate-400 hover:text-white">{showPassword ? <EyeOff size={18} /> : <Eye size={18} />}</button></div>
+
+                    <div className="mt-2 text-right">
+                        <button
+                            type="button"
+                            onClick={handleForgotPassword}
+                            disabled={resetting}
+                            className="text-xs font-medium text-slate-400 transition hover:text-blue-400"
+                        >
+                            {resetting ? "Sending reset link…" : "Forgot password?"}
+                        </button>
+                    </div>
                 </div>
 
                 <button

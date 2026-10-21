@@ -7,6 +7,8 @@ import Card from "../Components/Card";
 import ConfirmDialog from "../Components/ConfirmDialog";
 import Loader from "../Components/Loader";
 import StatusBadge from "../Components/StatusBadge";
+import { describeError } from "../lib/errors";
+import { applyFleetScope } from "../lib/fleetScope";
 import { supabase } from "../lib/supabaseClient";
 import { formatDate, getDocumentRows, getVehicleStatusType } from "../lib/vehicleHelpers";
 import { getStatus } from "../lib/vehicleStatus";
@@ -29,19 +31,26 @@ function VehicleDetail() {
 
     useEffect(() => {
         async function fetchVehicle() {
-            const { data, error: fetchError } = await supabase
-                .from("vehicles")
-                .select("*")
-                .eq("id", id)
-                .single();
+            try {
+                let query = supabase
+                    .from("vehicles")
+                    .select("*")
+                    .eq("id", id);
 
-            if (fetchError) {
-                setError("Vehicle could not be found.");
-            } else {
-                setVehicle(data);
+                query = await applyFleetScope(query);
+
+                const { data, error: fetchError } = await query.single();
+
+                if (fetchError) {
+                    setError(describeError(fetchError, "Vehicle could not be found."));
+                } else {
+                    setVehicle(data);
+                }
+            } catch (loadError) {
+                setError(describeError(loadError, "Vehicle could not be found."));
+            } finally {
+                setLoading(false);
             }
-
-            setLoading(false);
         }
 
         fetchVehicle();
@@ -50,20 +59,28 @@ function VehicleDetail() {
     const handleDelete = async () => {
         setDeleting(true);
 
-        const { error: deleteError } = await supabase
-            .from("vehicles")
-            .delete()
-            .eq("id", id);
+        try {
+            let deleteQuery = supabase
+                .from("vehicles")
+                .delete()
+                .eq("id", id);
 
-        setDeleting(false);
+            deleteQuery = await applyFleetScope(deleteQuery);
+            const { error: deleteError } = await deleteQuery;
 
-        if (deleteError) {
-            setError("Failed to delete vehicle.");
+            if (deleteError) {
+                setError(describeError(deleteError, "Failed to delete vehicle."));
+                setConfirmOpen(false);
+                return;
+            }
+
+            navigate("/vehicles");
+        } catch (deleteError) {
+            setError(describeError(deleteError, "Failed to delete vehicle."));
             setConfirmOpen(false);
-            return;
+        } finally {
+            setDeleting(false);
         }
-
-        navigate("/vehicles");
     };
 
     if (loading) {

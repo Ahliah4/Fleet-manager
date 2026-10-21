@@ -1,35 +1,22 @@
-import { getStatus } from "./vehicleStatus";
+import { daysUntil, formatDate, parseLocalDate } from "./dates";
+import { getStatus, STATUS_WINDOW_DAYS } from "./vehicleStatus";
 
 const dateFields = [
     "insurance_expiry",
     "road_tax_expiry",
     "roadworthy_expiry",
+    "next_service_date",
 ];
 
-export function toDate(value) {
-    if (!value) return null;
-    return String(value).includes("T") ? new Date(value) : new Date(`${value}T00:00:00`);
-}
+const documentFields = [
+    { name: "Insurance", field: "insurance_expiry" },
+    { name: "Road Tax", field: "road_tax_expiry" },
+    { name: "Roadworthy", field: "roadworthy_expiry" },
+    { name: "Service", field: "next_service_date" },
+];
 
-export function formatDate(value) {
-    if (!value) return "Not set";
-
-    return new Intl.DateTimeFormat("en", {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-    }).format(toDate(value));
-}
-
-export function daysUntil(value) {
-    const date = toDate(value);
-    if (!date) return null;
-
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    return Math.ceil((date - today) / (1000 * 60 * 60 * 24));
-}
+// Re-exported so pages can keep importing date helpers from one place.
+export { daysUntil, formatDate, parseLocalDate };
 
 export function getVehicleStatusType(vehicle) {
     const status = getStatus(vehicle);
@@ -59,50 +46,52 @@ export function getSoonestExpiry(vehicle) {
 }
 
 export function getDocumentRows(vehicle) {
-    return [
-        {
-            name: "Insurance",
-            value: vehicle.insurance_expiry,
-        },
-        {
-            name: "Road Tax",
-            value: vehicle.road_tax_expiry,
-        },
-        {
-            name: "Roadworthy",
-            value: vehicle.roadworthy_expiry,
-        },
-    ].map((item) => {
-        const days = daysUntil(item.value);
+    return documentFields.map(({ name, field }) => {
+        const days = daysUntil(vehicle[field]);
         const state = days === null
             ? "missing"
             : days < 0
                 ? "expired"
-                : days <= 30
+                : days <= STATUS_WINDOW_DAYS
                     ? "dueSoon"
                     : "active";
 
         return {
-            ...item,
+            name,
+            field,
+            value: vehicle[field],
             days,
             state,
         };
     });
 }
 
-export function getMonthlyRegistrations(vehicles) {
-    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    const months = monthNames.map((month) => ({
-        month,
-        vehicles: 0,
-    }));
+/**
+ * Rolling 12-month registration chart. Months are keyed by year + month so
+ * January 2025 never absorbs January 2024's count.
+ */
+export function getMonthlyRegistrations(vehicles, now = new Date()) {
+    const monthFormatter = new Intl.DateTimeFormat("en", { month: "short" });
+    const yearFormatter = new Intl.DateTimeFormat("en", { year: "2-digit" });
+    const months = Array.from({ length: 12 }, (_, index) => {
+        const date = new Date(now.getFullYear(), now.getMonth() - 11 + index, 1);
+        const key = `${date.getFullYear()}-${date.getMonth()}`;
+
+        return {
+            key,
+            month: `${monthFormatter.format(date)} '${yearFormatter.format(date)}`,
+            vehicles: 0,
+        };
+    });
+    const counts = new Map(months.map((month) => [month.key, month]));
 
     vehicles.forEach((vehicle) => {
-        const createdAt = vehicle.created_at ? new Date(vehicle.created_at) : null;
-        if (!createdAt || Number.isNaN(createdAt.getTime())) return;
+        const createdAt = parseLocalDate(vehicle.created_at);
+        if (!createdAt) return;
 
-        months[createdAt.getMonth()].vehicles += 1;
+        const month = counts.get(`${createdAt.getFullYear()}-${createdAt.getMonth()}`);
+        if (month) month.vehicles += 1;
     });
 
-    return months;
+    return months.map(({ month, vehicles: count }) => ({ month, vehicles: count }));
 }
