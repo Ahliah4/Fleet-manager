@@ -101,10 +101,32 @@ create table if not exists public.notifications (
   created_at  timestamptz not null default now()
 );
 
+-- Older installations have no ownership columns at all. Add them before the
+-- backfill statements below reference them.
+alter table public.vehicles add column if not exists user_id uuid;
 alter table public.vehicles add column if not exists fleet_id uuid;
 alter table public.vehicles add column if not exists next_service_date date;
 alter table public.notifications add column if not exists fleet_id uuid;
 alter table public.notifications add column if not exists dedupe_key text;
+
+-- The legacy vehicles table stored a status and updated_at. Give inserts from
+-- the current app safe defaults if those columns were not given one.
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'vehicles' and column_name = 'status'
+  ) then
+    alter table public.vehicles alter column status set default 'Active';
+  end if;
+
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'vehicles' and column_name = 'updated_at'
+  ) then
+    alter table public.vehicles alter column updated_at set default now();
+  end if;
+end $$;
 
 -- Backfill ownership from the account that created each row.
 update public.vehicles v
@@ -336,11 +358,9 @@ security definer
 set search_path = public
 as $$
 declare
-  is_first_user boolean;
   new_fleet_id uuid := gen_random_uuid();
   display_name text;
 begin
-  select not exists (select 1 from public.profiles) into is_first_user;
   display_name := coalesce(
     nullif(new.raw_user_meta_data ->> 'full_name', ''),
     split_part(new.email, '@', 1),
@@ -348,12 +368,15 @@ begin
   );
 
   insert into public.fleets (id, name) values (new_fleet_id, display_name);
+  -- A signup starts a new fleet, so its first account must be able to manage
+  -- it. Team-created accounts are moved into the caller's fleet afterwards by
+  -- the admin-create-user Edge Function, which sets the requested role.
   insert into public.profiles (id, email, full_name, role, fleet_id)
   values (
     new.id,
     new.email,
     display_name,
-    case when is_first_user then 'admin' else 'member' end,
+    'admin',
     new_fleet_id
   )
   on conflict (id) do update
@@ -380,6 +403,7 @@ begin
     select u.id, u.email, u.raw_user_meta_data
     from auth.users u
     where not exists (select 1 from public.profiles p where p.id = u.id)
+    order by u.created_at
   loop
     fleet := gen_random_uuid();
     display_name := coalesce(
@@ -389,12 +413,13 @@ begin
     );
 
     insert into public.fleets (id, name) values (fleet, display_name);
+    -- Each pre-fleet account gets its own fleet and must be able to manage it.
     insert into public.profiles (id, email, full_name, role, fleet_id)
     values (
       account.id,
       account.email,
       display_name,
-      case when not exists (select 1 from public.profiles) then 'admin' else 'member' end,
+      'admin',
       fleet
     );
   end loop;
@@ -416,7 +441,77 @@ where p.role <> 'admin'
   );
 
 -- ----------------------------------------------------------------------------
--- 5. Row Level Security
+-- 5. Adopt data from the pre-fleet schema
+-- ----------------------------------------------------------------------------
+-- Projects created before fleets have vehicles with no user_id/fleet_id. Give
+-- them to the earliest admin so existing fleet data remains visible once RLS
+-- is switched on. A single-account project is the common case; multi-account
+-- projects can reassign rows later (see README).
+update public.vehicles v
+set fleet_id = p.fleet_id
+from public.profiles p
+where v.fleet_id is null and v.user_id = p.id;
+
+update public.notifications n
+set fleet_id = p.fleet_id
+from public.profiles p
+where n.fleet_id is null and n.user_id = p.id;
+
+do $$
+declare
+  legacy_owner record;
+  would_collide integer;
+begin
+  select p.id, p.fleet_id
+  into legacy_owner
+  from public.profiles p
+  left join auth.users u on u.id = p.id
+  order by (p.role = 'admin') desc, u.created_at nulls last
+  limit 1;
+
+  if legacy_owner.id is not null then
+    -- The registration index was created before profiles existed, so it has
+    -- not seen these rows yet. Drop it instead of failing the migration if
+    -- adopting them would introduce duplicate registrations.
+    select count(*)
+    into would_collide
+    from public.vehicles v
+    where v.fleet_id is null
+      and (
+        exists (
+          select 1
+          from public.vehicles other
+          where other.fleet_id is null
+            and other.id <> v.id
+            and lower(trim(other.registration_number)) = lower(trim(v.registration_number))
+        )
+        or exists (
+          select 1
+          from public.vehicles existing
+          where existing.fleet_id = legacy_owner.fleet_id
+            and lower(trim(existing.registration_number)) = lower(trim(v.registration_number))
+        )
+      );
+
+    if would_collide > 0 then
+      drop index if exists public.vehicles_fleet_registration_unique;
+      raise notice 'Duplicate registrations would collide when adopting legacy vehicles; the unique registration index was dropped. Clean up duplicates and rerun schema.sql.';
+    end if;
+
+    update public.vehicles
+    set fleet_id = legacy_owner.fleet_id,
+        user_id = coalesce(user_id, legacy_owner.id)
+    where fleet_id is null;
+
+    update public.notifications
+    set fleet_id = legacy_owner.fleet_id,
+        user_id = coalesce(user_id, legacy_owner.id)
+    where fleet_id is null;
+  end if;
+end $$;
+
+-- ----------------------------------------------------------------------------
+-- 6. Row Level Security
 -- ----------------------------------------------------------------------------
 alter table public.profiles enable row level security;
 alter table public.fleets enable row level security;
@@ -514,7 +609,19 @@ set search_path = public
 as $$
 begin
   if old.role = 'admin' and new.role <> 'admin' then
-    if not exists (
+    if new.fleet_id is distinct from old.fleet_id then
+      -- Moving an admin to another fleet is allowed if the old fleet is left
+      -- empty (the Team flow's temporary fleet) or already has another admin.
+      if exists (
+        select 1 from public.profiles
+        where fleet_id = old.fleet_id and id <> old.id
+      ) and not exists (
+        select 1 from public.profiles
+        where fleet_id = old.fleet_id and role = 'admin' and id <> old.id
+      ) then
+        raise exception 'A fleet must keep at least one admin.' using errcode = '23514';
+      end if;
+    elsif not exists (
       select 1 from public.profiles
       where fleet_id = old.fleet_id and role = 'admin' and id <> old.id
     ) then
@@ -532,7 +639,7 @@ create trigger protect_last_admin
   for each row execute function public.protect_last_admin();
 
 -- ----------------------------------------------------------------------------
--- 6. Scheduled expiry + service alerts
+-- 7. Scheduled expiry + service alerts
 -- ----------------------------------------------------------------------------
 -- The app also runs this logic when it opens, so alerts appear immediately.
 -- The scheduled job makes sure reminders exist even when nobody opens the app.
@@ -736,7 +843,7 @@ exception when others then
 end $$;
 
 -- ----------------------------------------------------------------------------
--- 7. Realtime
+-- 8. Realtime
 -- ----------------------------------------------------------------------------
 do $$
 begin
@@ -764,7 +871,7 @@ exception when others then
 end $$;
 
 -- ----------------------------------------------------------------------------
--- 8. Grants
+-- 9. Grants
 -- ----------------------------------------------------------------------------
 grant select, insert, update, delete on public.vehicles to authenticated;
 grant select, insert, update, delete on public.notifications to authenticated;
@@ -777,6 +884,9 @@ revoke all on public.vehicles from anon;
 revoke all on public.notifications from anon;
 revoke all on public.profiles from anon;
 revoke all on public.fleets from anon;
+
+-- Refresh PostgREST's schema cache after this migration adds tables/columns.
+notify pgrst, 'reload schema';
 
 -- ============================================================================
 -- After running this:

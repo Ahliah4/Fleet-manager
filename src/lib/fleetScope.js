@@ -30,9 +30,19 @@ function isMissingSchema(error) {
 }
 
 export function describeSetupError(error) {
+    const detail = error?.message || "missing fleet data";
+    const missingProfile = /public\.profiles|profiles.*schema cache|table .*profiles/i.test(detail);
+
+    if (missingProfile) {
+        return new Error(
+            "Supabase cannot find public.profiles. Run the complete supabase/schema.sql in the SQL Editor for the same project configured in this app, then run supabase/verify-setup.sql. If the table exists but REST still reports a schema-cache error, run NOTIFY pgrst, 'reload schema'; and reload the app. " +
+                `(${detail})`
+        );
+    }
+
     return new Error(
         "Your account is not fully set up. Run supabase/schema.sql in the Supabase SQL editor, then reload. " +
-            `(${error?.message || "missing fleet data"})`
+            `(${detail})`
     );
 }
 

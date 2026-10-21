@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { Eye, EyeOff, KeyRound } from "lucide-react";
+import { Eye, EyeOff } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { useAuth } from "../lib/authContext";
+import BrandLogo from "../Components/BrandLogo";
 
 function ResetPassword() {
     const { user, loading: authLoading, updatePassword, signOut } = useAuth();
@@ -81,10 +82,8 @@ function ResetPassword() {
                 onSubmit={handleSubmit}
                 className="w-full max-w-md space-y-5 rounded-3xl border border-white/10 bg-slate-900/90 p-6 shadow-2xl shadow-black/20 backdrop-blur sm:p-8"
             >
-                <div>
-                    <div className="mb-5 flex h-11 w-11 items-center justify-center rounded-xl bg-blue-600 text-white shadow-lg shadow-blue-600/30">
-                        <KeyRound size={20} />
-                    </div>
+                <div className="text-center">
+                    <BrandLogo />
                     <h1 className="text-3xl font-bold tracking-tight text-white">Choose a new password</h1>
                     <p className="mt-2 text-sm text-slate-400">Set a new password for {user.email}.</p>
                 </div>

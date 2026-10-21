@@ -9,6 +9,7 @@ import {
   Bell, Users, X
 } from "lucide-react";
 import { useAuth } from "../lib/authContext";
+import BrandLogo from "./BrandLogo";
 
 
 function Sidebar({ open, onClose }) {
@@ -37,18 +38,8 @@ function Sidebar({ open, onClose }) {
         {open && <button aria-label="Close navigation" className="fixed inset-0 z-40 bg-slate-950/40 lg:hidden" onClick={onClose} />}
         <aside className={`fixed inset-y-0 left-0 z-50 flex min-h-screen w-72 flex-col border-r border-slate-800 bg-slate-950 p-4 pt-[max(1rem,env(safe-area-inset-top))] text-white shadow-2xl transition-transform duration-300 lg:sticky lg:top-0 lg:z-0 lg:translate-x-0 lg:shadow-none ${open ? "translate-x-0" : "-translate-x-full"}`}>
 
-            <div className="mb-9 flex items-center justify-between px-2">
-              <div className="flex items-center gap-3">
-
-                <div className="rounded-xl bg-blue-500 p-2 shadow-lg shadow-blue-500/20">
-                    <Car size={24} />
-                </div>
-
-                <h1 className="text-lg font-bold tracking-tight">
-                    Fleet Manager
-                </h1>
-
-              </div>
+            <div className="mb-8 flex items-center justify-between gap-2 px-1">
+              <BrandLogo compact />
               <button aria-label="Close navigation" onClick={onClose} className="rounded-lg p-2 text-slate-400 hover:bg-white/10 hover:text-white lg:hidden"><X size={18} /></button>
             </div>
 

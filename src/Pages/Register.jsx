@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { Eye, EyeOff, UserPlus } from "lucide-react";
+import { Eye, EyeOff } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../lib/authContext";
+import BrandLogo from "../Components/BrandLogo";
 
 function Register() {
     const { signUp } = useAuth();
@@ -68,14 +69,14 @@ function Register() {
                 onSubmit={handleSubmit}
                 className="w-full max-w-md space-y-5 rounded-3xl border border-white/10 bg-slate-900/90 p-6 shadow-2xl shadow-black/20 backdrop-blur sm:p-8"
             >
-                <div>
-                    <div className="mb-5 flex h-11 w-11 items-center justify-center rounded-xl bg-blue-600 shadow-lg shadow-blue-600/30"><UserPlus size={20} /></div>
+                <div className="text-center">
+                    <BrandLogo />
                     <h1 className="text-3xl font-bold tracking-tight text-white">
                         Create Account
                     </h1>
 
-                    <p className="text-gray-400 mt-2">
-                        Create your Fleet Manager account.
+                    <p className="mt-2 text-sm text-gray-400">
+                        Create your IP Motors fleet account.
                     </p>
                 </div>
 

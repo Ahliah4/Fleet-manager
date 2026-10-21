@@ -1,4 +1,4 @@
-# Fleet Manager
+# IP Motors Fleet Manager
 
 A fleet document, compliance, and maintenance manager built with React + Vite
 and Supabase. It runs as an installable PWA on Android and iOS and can be
@@ -47,6 +47,11 @@ wrapped with Capacitor later if you need store builds.
    run [`supabase/scheduled-alerts.sql`](supabase/scheduled-alerts.sql) to
    install just the schedule.
 
+   To confirm the migration completed in the same Supabase project used by
+   `.env`, run [`supabase/verify-setup.sql`](supabase/verify-setup.sql). It
+   should return non-NULL table names, the required columns, ownership counts,
+   and row-level security enabled on all four tables.
+
 4. **Deploy the admin function**
 
    ```bash
@@ -75,10 +80,10 @@ wrapped with Capacitor later if you need store builds.
 
 ## How access works
 
-- Every account belongs to a **fleet**. The first account becomes the admin of
-  its own fleet.
-- **Team → Create user** creates the account in the admin's fleet, so staff see
-  the same vehicles, alerts, and reports.
+- Every account belongs to a **fleet**. A self-service signup starts a new fleet
+  and is its admin. **Team → Create user** instead places the new account in the
+  admin's fleet with the chosen role, so staff share vehicles, alerts, and
+  reports.
 - RLS allows only `fleet_id = current_fleet_id()` for vehicles and
   notifications. Queries in the app also filter by fleet, so a missing migration
   fails visibly instead of exposing another fleet.
@@ -93,9 +98,18 @@ service-role Edge Function.
 
 ### Upgrading an existing project
 
-Run `supabase/schema.sql` again. Existing accounts each keep their own fleet so
-nobody gains access to data they did not have before. To merge a member into
-the owner's fleet:
+Run `supabase/schema.sql` again. It is safe to rerun and now upgrades projects
+that predate fleets (where `vehicles` has no `user_id`, `fleet_id`, or
+`next_service_date`).
+
+- Existing vehicles and notifications are assigned to the earliest admin's
+  fleet, so the current fleet stays visible after RLS is enabled. If the schema
+  finds duplicate registration numbers during that adoption, it drops the unique
+  registration index with a notice instead of failing; clean up the duplicates
+  and rerun the script.
+- Existing accounts each keep their own fleet so nobody gains access to data
+  they did not have before. Only accounts created through **Team → Create user**
+  join the admin's fleet. To merge a member into the owner's fleet:
 
 ```sql
 -- Find the admin's fleet id
@@ -106,6 +120,19 @@ update public.vehicles      set fleet_id = '<FLEET_ID>' where user_id = '<MEMBER
 update public.notifications set fleet_id = '<FLEET_ID>' where user_id = '<MEMBER_ID>';
 update public.profiles      set fleet_id = '<FLEET_ID>' where id      = '<MEMBER_ID>';
 ```
+
+After running the migration, run `supabase/verify-setup.sql` and check that:
+
+- all four table names are non-NULL;
+- `vehicles` has `user_id`, `fleet_id`, and `next_service_date`;
+- `notifications` has `fleet_id` and `dedupe_key`;
+- row-level security is enabled on all four tables;
+- each auth user has a profile and there are no vehicles without a fleet.
+
+Then sign out and back in so the app reloads the cached profile. If the Team
+page still reports setup needed, check the browser's Network tab for
+`/rest/v1/profiles`. A `PGRST205` response means PostgREST still has a stale
+schema cache; run `notify pgrst, 'reload schema';` and reload the app.
 
 If the unique registration index was skipped because of duplicates, clean those
 up and rerun the script.
@@ -150,9 +177,13 @@ not produce App Store or Google Play packages.
 ## Troubleshooting
 
 - **"Your account is not fully set up"** — run `supabase/schema.sql`, sign out,
-  and sign back in.
-- **Team page says setup is needed** — the `profiles` table or its columns are
-  missing; rerun the schema.
+  and sign back in. If `public.profiles` is still missing, confirm the SQL ran
+  successfully in the project URL configured for this app. If the table exists
+  but REST still says it is missing from the schema cache, run
+  `notify pgrst, 'reload schema';` in the Supabase SQL Editor and reload the app.
+- **Team page says setup is needed** — `profiles`, `fleets`, or the ownership
+  columns are missing; run the current `supabase/schema.sql`, then
+  `supabase/verify-setup.sql`.
 - **"Create user" fails** — deploy `admin-create-user` and confirm the function
   has `SUPABASE_SERVICE_ROLE_KEY` in its environment.
 - **Password reset link does not open the new-password screen** — add the exact

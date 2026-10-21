@@ -59,7 +59,7 @@ function InstallPrompt() {
                 </div>
 
                 <div className="min-w-0 flex-1">
-                    <p className="text-sm font-semibold text-slate-900">Install Fleet Manager</p>
+                    <p className="text-sm font-semibold text-slate-900">Install IP Motors Fleet</p>
                     {isIOS ? (
                         <p className="mt-1 text-sm text-slate-500">
                             Tap <Share size={14} className="mx-1 inline" /> Share, then

@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { Eye, EyeOff, LockKeyhole, Mail } from "lucide-react";
+import { Eye, EyeOff, Mail } from "lucide-react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../lib/authContext";
+import BrandLogo from "../Components/BrandLogo";
 
 function Login() {
     const { signIn, resetPassword } = useAuth();
@@ -70,14 +71,12 @@ function Login() {
                 onSubmit={handleSubmit}
                 className="w-full max-w-md space-y-6 rounded-3xl border border-white/10 bg-slate-900/90 p-6 shadow-2xl shadow-black/20 backdrop-blur sm:p-8"
             >
-                <div>
-                    <div className="mb-5 flex h-11 w-11 items-center justify-center rounded-xl bg-blue-600 shadow-lg shadow-blue-600/30"><LockKeyhole size={20} /></div>
-                    <h1 className="text-3xl font-bold tracking-tight text-white">
-                        FleetManager
-                    </h1>
+                <div className="text-center">
+                    <BrandLogo />
+                    <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">IP Motors Fleet Manager</h1>
 
-                    <p className="text-gray-400 mt-2">
-                        Sign in to manage your fleet.
+                    <p className="mt-2 text-sm text-gray-400">
+                        Sign in to manage your vehicles and fleet documents.
                     </p>
                 </div>
 
