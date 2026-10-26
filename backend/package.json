@@ -1,0 +1,35 @@
+{
+  "name": "@ip-motors/fleet-api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "IP Motors Fleet Manager API foundation",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/src/server.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "migrate": "tsx scripts/migrate.ts",
+    "migrate:apply": "tsx scripts/migrate.ts --apply"
+  },
+  "dependencies": {
+    "@fastify/helmet": "^13.2.0",
+    "dotenv": "^16.6.1",
+    "fastify": "^5.12.7",
+    "jose": "^6.2.13",
+    "pg": "^8.23.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "@types/pg": "^8.23.1",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.7"
+  }
+}

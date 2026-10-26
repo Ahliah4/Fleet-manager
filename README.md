@@ -45,9 +45,20 @@ Records are stored only in this browser profile on this device. They do not sync
 
 This version is suitable for local evaluation and early single-device use. Shared accounts, team permissions, synchronized data, remote backups, and production financial workflows require a separately selected backend and security design.
 
+## Backend foundation (Phase 1, not connected)
+
+[`backend/`](backend/README.md) now contains the shared API foundation: a TypeScript
+Fastify service, PostgreSQL migrations, tenant isolation and audit rules, and Docker
+packaging. It is designed for Neon PostgreSQL and provider-neutral JWT/JWKS sign-in.
+
+The PWA and Flutter app still use their local IndexedDB and SQLite stores. Neither
+client is connected to the backend, no local data has been migrated, and nothing has
+been deployed. Neon migrations have not been run from this workspace. Authentication
+fails closed until an identity provider is configured.
+
 ## Product direction
 
 The React PWA remains available while the Flutter client in `mobile/` is developed.
-Both currently store records locally on one device. A hosted API/database and shared
-accounts remain future work; the previous cloud integration is not part of the active
-app.
+Both currently store records locally on one device. The backend foundation exists but
+shared accounts, synchronization, and hosted data remain unfinished; the previous
+cloud integration is not part of the active app.
