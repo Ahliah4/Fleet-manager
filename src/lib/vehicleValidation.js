@@ -65,7 +65,7 @@ export function validateVehicle(values = {}, { now = new Date() } = {}) {
     return { errors, isValid: Object.keys(errors).length === 0 };
 }
 
-/** Turn `{ field: message }` from Supabase into a readable summary. */
+/** Turn `{ field: message }` from validation into a readable summary. */
 export function firstError(errors) {
     return Object.values(errors || {})[0] || null;
 }

@@ -52,9 +52,9 @@ function InstallPrompt() {
     if (!visible) return null;
 
     return (
-        <div className="fixed inset-x-3 bottom-20 z-40 mx-auto max-w-md rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl shadow-slate-950/10 lg:bottom-6">
+        <div className="fixed inset-x-3 bottom-20 z-40 mx-auto max-w-md rounded-2xl border border-white/70 bg-white/80 p-4 shadow-2xl shadow-slate-950/15 backdrop-blur-2xl backdrop-saturate-150 lg:bottom-6">
             <div className="flex items-start gap-3">
-                <div className="rounded-xl bg-blue-50 p-2.5 text-blue-600">
+                <div className="rounded-xl bg-brand-50 p-2.5 text-brand-600">
                     <Download size={20} />
                 </div>
 
@@ -75,7 +75,7 @@ function InstallPrompt() {
                         <button
                             type="button"
                             onClick={install}
-                            className="mt-3 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700"
+                            className="mt-3 rounded-xl bg-brand-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-700"
                         >
                             Install app
                         </button>

@@ -1,6 +1,5 @@
 import { Component } from "react";
 
-import Button from "./Button";
 
 /**
  * Catches render failures and stale lazy chunks after a new deployment.
@@ -33,9 +32,9 @@ class AppErrorBoundary extends Component {
                         <p className="break-words rounded-lg bg-slate-50 p-3 text-xs text-slate-500">
                             {this.state.error?.message || "Unknown error"}
                         </p>
-                        <Button onClick={() => window.location.reload()} className="w-full">
+                        <button type="button" onClick={() => window.location.reload()} className="min-h-11 w-full rounded-xl bg-ink px-4 text-sm font-semibold text-white hover:bg-black">
                             Reload app
-                        </Button>
+                        </button>
                     </section>
                 </main>
             );
