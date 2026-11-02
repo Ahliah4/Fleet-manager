@@ -1,12 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
     Activity, ArrowDownRight, ArrowUpRight, CarFront, Check, ChevronRight,
-    CircleDollarSign, Download, FileText, LayoutDashboard, Menu, Plus,
+    CircleDollarSign, Download, FileText, LayoutDashboard, LogIn, LogOut, Menu, Plus,
     Search, Settings, ShieldAlert, Trash2, Users, Wrench, X,
 } from "lucide-react";
 import InstallPrompt from "./Components/InstallPrompt";
 import BrandLogo from "./Components/BrandLogo";
-import { deleteRecord, exportDatabase, getRecords, importDatabase, saveRecord } from "./lib/localDatabase";
+import { deleteSharedRecord, loadSharedFleet, saveSharedRecord, signOutSharedFleet } from "./lib/sharedFleet";
 
 const NAV = [
     { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -17,7 +17,6 @@ const NAV = [
     { id: "backup", label: "Backup & settings", icon: Settings },
 ];
 
-const STORES = ["vehicles", "drivers", "expenses", "income", "remittances"];
 const CATEGORIES = ["Parts", "Engine oil & fluids", "Tyres", "Repairs", "Service", "Inspection", "Other"];
 const EMPTY = { vehicles: [], drivers: [], expenses: [], income: [], remittances: [] };
 
@@ -35,6 +34,29 @@ function formatDate(value) {
     return new Date(`${value}T00:00:00`).toLocaleDateString("en-ZM", { day: "numeric", month: "short", year: "numeric" });
 }
 
+function roleLabel(role) {
+    return ({ fleet_owner: "Fleet Owner", fleet_admin: "Fleet Admin", fleet_manager: "Fleet Manager", finance_manager: "Finance Manager", fleet_member: "Fleet Member", read_only: "Read only" })[role] || "Fleet user";
+}
+
+function AuthLoading() {
+    return <main className="grid min-h-[100dvh] place-items-center bg-ink px-5 text-white"><div className="text-center"><BrandLogo /><p className="mt-5 text-sm text-white/65">Opening your shared fleet…</p></div></main>;
+}
+
+function SignInScreen({ error }) {
+    return <main className="min-h-[100dvh] bg-canvas text-ink sm:grid sm:place-items-center sm:p-6">
+        <section className="mx-auto min-h-[100dvh] w-full max-w-md overflow-hidden bg-white sm:min-h-0 sm:rounded-[28px] sm:border sm:border-stone sm:shadow-2xl">
+            <div className="bg-ink px-7 pb-8 pt-[max(2.25rem,env(safe-area-inset-top))] text-white"><BrandLogo /><p className="text-center text-[11px] font-semibold uppercase tracking-[0.22em] text-white/65">Fleet Operations</p></div>
+            <div className="space-y-5 px-6 py-7 pb-[max(2rem,env(safe-area-inset-bottom))]">
+                <div><p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink/50">Shared fleet</p><h1 className="mt-2 text-3xl font-semibold tracking-tight">Sign in to your fleet</h1><p className="mt-2 text-sm leading-6 text-ink/60">Use your verified account to manage the same records from iPhone, Android, or computer.</p></div>
+                {error && <p role="alert" className="rounded-xl border border-brand-500/30 bg-brand-50 px-4 py-3 text-sm text-brand-800">{error}</p>}
+                <a href="/auth/start" className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-ink px-5 text-sm font-semibold text-white active:scale-[0.99]"><LogIn size={18} />Sign in securely</a>
+                <a href="/auth/start?mode=signup" className="flex min-h-12 w-full items-center justify-center rounded-xl border border-stone px-5 text-sm font-semibold active:bg-canvas">Create an account</a>
+                <p className="text-center text-xs leading-5 text-ink/50">Fleet access and roles are assigned by the Fleet Owner.</p>
+            </div>
+        </section>
+    </main>;
+}
+
 function App() {
     const [data, setData] = useState(EMPTY);
     const [page, setPage] = useState("dashboard");
@@ -43,16 +65,27 @@ function App() {
     const [editing, setEditing] = useState(null);
     const [menuOpen, setMenuOpen] = useState(false);
     const [loading, setLoading] = useState(true);
+    const [signedOut, setSignedOut] = useState(false);
+    const [me, setMe] = useState(null);
     const [error, setError] = useState("");
     const [message, setMessage] = useState("");
 
     const refresh = useCallback(async () => {
         try {
-            const values = await Promise.all(STORES.map((store) => getRecords(store)));
-            setData(Object.fromEntries(STORES.map((store, index) => [store, values[index]])));
+            const shared = await loadSharedFleet();
+            setData(shared.data);
+            setMe(shared.me);
+            setSignedOut(false);
             setError("");
         } catch (loadError) {
-            setError(loadError?.message || "Could not open this device’s fleet storage.");
+            if (loadError?.status === 401) {
+                setSignedOut(true);
+                const authError = new URL(window.location.href).searchParams.get("auth_error");
+                setError(authError ? "Sign-in could not be completed. Please try again." : "");
+                if (authError) history.replaceState({}, document.title, window.location.pathname);
+            } else {
+                setError(loadError?.message || "Could not open the shared fleet.");
+            }
         } finally {
             setLoading(false);
         }
@@ -68,7 +101,7 @@ function App() {
 
     const persist = async (store, record, success) => {
         try {
-            await saveRecord(store, record);
+            await saveSharedRecord(store, record);
             await refresh();
             setFormType("");
             setEditing(null);
@@ -91,7 +124,7 @@ function App() {
         }
         if (!window.confirm(`Delete ${label}? This action cannot be undone on this device.`)) return;
         try {
-            await deleteRecord(store, record.id);
+            await deleteSharedRecord(store, record.id);
             await refresh();
             setMessage(`${label} deleted.`);
         } catch (deleteError) {
@@ -100,6 +133,16 @@ function App() {
     };
 
     const title = NAV.find((item) => item.id === page)?.label || "Dashboard";
+
+    const signOut = async () => {
+        await signOutSharedFleet().catch(() => undefined);
+        setData(EMPTY);
+        setMe(null);
+        setSignedOut(true);
+    };
+
+    if (loading) return <AuthLoading />;
+    if (signedOut) return <SignInScreen error={error} />;
 
     return (
         <div className="min-h-screen bg-canvas text-ink lg:flex">
@@ -119,8 +162,8 @@ function App() {
                     ))}
                 </nav>
                 <div className="rounded-xl border border-white/10 bg-white/[0.04] p-3 text-xs leading-5 text-white/60">
-                    <span className="mb-1 flex items-center gap-2 font-semibold text-white"><Activity size={14} /> On-device mode</span>
-                    Records stay in this browser on this device. Use Backup &amp; settings to move them safely.
+                    <span className="mb-1 flex items-center gap-2 font-semibold text-white"><Activity size={14} /> Shared fleet online</span>
+                    Changes are saved to the protected workspace for authorized team members.
                 </div>
             </aside>
 
@@ -136,7 +179,7 @@ function App() {
                             <input className="min-h-10 w-full rounded-xl border border-stone/70 bg-canvas pl-10 pr-3 text-sm text-ink outline-none placeholder:text-ink/45 focus:border-ink" placeholder="Search this page…" value={search} onChange={(event) => setSearch(event.target.value)} />
                         </label>
                     </div>
-                    <div className="flex items-center gap-3"><span className="hidden text-xs text-ink/60 sm:block">Local device data</span><span className="grid h-9 w-9 place-items-center rounded-full bg-ink text-xs font-semibold text-white" aria-label="Fleet owner">FO</span></div>
+                    <div className="flex items-center gap-2"><span className="hidden text-right text-xs text-ink/60 sm:block"><strong className="block text-ink">{me?.user?.displayName || me?.user?.email || "Fleet user"}</strong>{roleLabel(me?.membership?.role)}</span><button type="button" onClick={signOut} className="grid h-10 w-10 place-items-center rounded-full bg-ink text-white" aria-label="Sign out"><LogOut size={17} /></button></div>
                 </header>
 
                 {["vehicles", "drivers", "maintenance", "finance"].includes(page) && <div className="border-b border-stone/70 bg-white px-4 py-2 md:hidden"><label className="relative block"><span className="sr-only">Search {title.toLowerCase()}</span><Search size={17} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink/45" /><input className="min-h-10 w-full rounded-xl border border-stone/70 bg-canvas pl-10 pr-3 text-sm text-ink outline-none placeholder:text-ink/45 focus:border-ink" placeholder="Search by vehicle, driver, or item…" value={search} onChange={(event) => setSearch(event.target.value)} /></label></div>}
@@ -144,16 +187,14 @@ function App() {
                 <main id="main-content" className="mx-auto w-full max-w-[1440px] space-y-5 p-4 pb-[calc(6rem+env(safe-area-inset-bottom))] sm:p-6 sm:pb-28 lg:p-8">
                     {error && <div role="alert" className="flex items-start justify-between gap-3 rounded-xl border border-brand-500/30 bg-white px-4 py-3 text-sm text-ink"><p>{error}</p><button type="button" aria-label="Dismiss error" onClick={() => setError("")}><X size={17} /></button></div>}
                     {message && <div role="status" className="flex items-start justify-between gap-3 rounded-xl border border-stone bg-white px-4 py-3 text-sm text-ink"><p className="flex items-center gap-2"><Check size={16} />{message}</p><button type="button" aria-label="Dismiss message" onClick={() => setMessage("")}><X size={17} /></button></div>}
-                    {loading ? <div className="rounded-2xl border border-stone bg-white p-8 text-sm text-ink/60">Opening your on-device fleet database…</div> : (
-                        <>
+                    <>
                             {page === "dashboard" && <Dashboard data={data} go={setPage} />}
                             {page === "vehicles" && <Vehicles data={data} query={search} openForm={(record) => openForm("vehicle", record)} remove={(record) => remove("vehicles", record, `${record.make} ${record.model}`)} />}
                             {page === "drivers" && <Drivers data={data} query={search} openForm={(record) => openForm("driver", record)} remove={(record) => remove("drivers", record, record.name)} />}
                             {page === "maintenance" && <Maintenance data={data} query={search} openForm={() => openForm("expense")} />}
                             {page === "finance" && <Finance data={data} query={search} openForm={openForm} />}
-                            {page === "backup" && <Backup setError={setError} setMessage={setMessage} refresh={refresh} />}
+                            {page === "backup" && <Backup data={data} setError={setError} setMessage={setMessage} />}
                         </>
-                    )}
                 </main>
             </div>
 
@@ -190,7 +231,7 @@ function Dashboard({ data, go }) {
     const underMaintenance = data.vehicles.filter((item) => item.status === "Maintenance").length;
     return <>
         <PageHeading eyebrow="Overview" title="Fleet dashboard" description="Your vehicles, records, and money at a glance." action={<button onClick={() => go("vehicles")} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-ink px-4 text-sm font-semibold text-white hover:bg-black"><Plus size={17} />Add vehicle</button>} />
-        <div role="note" className="flex gap-3 rounded-xl border border-stone bg-white px-4 py-3 text-sm leading-6 text-ink/70"><ShieldAlert size={18} className="mt-0.5 shrink-0 text-brand-700" /><p><strong className="text-ink">Saved on this device.</strong> This version works without an online database. Export regular backups in More. It does not sync to another phone or staff member.</p></div>
+        <div role="status" className="flex gap-3 rounded-xl border border-stone bg-white px-4 py-3 text-sm leading-6 text-ink/70"><Check size={18} className="mt-0.5 shrink-0 text-brand-700" /><p><strong className="text-ink">Shared fleet connected.</strong> Authorized team members see the same saved records.</p></div>
         <div className="grid grid-cols-2 gap-3 xl:grid-cols-4"><Metric label="Vehicles" value={data.vehicles.length} helper={`${available} available · ${onHire} on hire`} dark /><Metric label="In maintenance" value={underMaintenance} helper="Vehicles marked for repair or service" /><Metric label="Income recorded today" value={formatMoney(todayIncome)} helper="Kept separate from remittances" /><Metric label="Vehicle costs this month" value={formatMoney(expenses)} helper={`${data.expenses.length} expense entries`} /></div>
         <div className="grid gap-5 xl:grid-cols-[1.35fr_0.65fr]">
             <Card className="!p-0"><div className="flex items-center justify-between border-b border-stone/70 px-4 py-4 sm:px-5"><div><h2 className="font-semibold">Vehicles</h2><p className="mt-1 text-xs text-ink/55">{dueDocuments ? `${dueDocuments} document${dueDocuments === 1 ? "" : "s"} due within 30 days` : "Your vehicle register"}</p></div><button onClick={() => go("vehicles")} className="text-sm font-semibold text-brand-700">View all</button></div>{recent.length ? <ul className="divide-y divide-stone/60">{recent.map((vehicle) => <li key={vehicle.id} className="flex items-center justify-between gap-3 px-4 py-3.5 sm:px-5"><div className="min-w-0"><p className="truncate font-semibold">{vehicle.make} {vehicle.model}</p><p className="mt-0.5 text-sm text-ink/55">{vehicle.registration} · {vehicle.year || "Year not set"}</p></div><StatusPill value={vehicle.status || "Available"} /></li>)}</ul> : <Empty title="No vehicles added" body="Add your first car to start keeping the fleet register." action={<button onClick={() => go("vehicles")} className="mt-3 rounded-xl bg-ink px-4 py-2.5 text-sm font-semibold text-white">Add vehicle</button>} />}</Card>
@@ -252,22 +293,15 @@ function Finance({ data, query, openForm }) {
     </>;
 }
 
-function Backup({ setError, setMessage, refresh }) {
+function Backup({ data, setError, setMessage }) {
     const [working, setWorking] = useState(false);
     const download = async () => {
         setWorking(true); setError("");
-        try { const backup = await exportDatabase(); const url = URL.createObjectURL(new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" })); const link = document.createElement("a"); link.href = url; link.download = `ip-motors-backup-${dateToday()}.json`; link.click(); URL.revokeObjectURL(url); setMessage("Backup downloaded. Keep it somewhere safe."); }
+        try { const backup = { format: "ip-motors-shared-export", version: 1, exportedAt: new Date().toISOString(), data }; const url = URL.createObjectURL(new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" })); const link = document.createElement("a"); link.href = url; link.download = `ip-motors-export-${dateToday()}.json`; link.click(); URL.revokeObjectURL(url); setMessage("Fleet export downloaded. Keep it somewhere safe."); }
         catch (problem) { setError(problem?.message || "Could not create a backup."); }
         finally { setWorking(false); }
     };
-    const restore = async (event) => {
-        const file = event.target.files?.[0]; if (!file) return;
-        setWorking(true); setError("");
-        try { const backup = JSON.parse(await file.text()); if (!window.confirm("Restore this backup? It replaces the records currently saved on this device.")) return; await importDatabase(backup); await refresh(); setMessage("Backup restored on this device."); }
-        catch (problem) { setError(problem?.message || "That backup could not be restored."); }
-        finally { setWorking(false); event.target.value = ""; }
-    };
-    return <><PageHeading eyebrow="Data & device" title="Backup & settings" description="Protect your locally saved fleet records." /><Card className="max-w-3xl"><span className="grid h-11 w-11 place-items-center rounded-xl bg-ink text-white"><FileText size={20} /></span><h2 className="mt-4 text-lg font-semibold">Your data is stored in this browser</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-ink/65">Vehicles, drivers, expenses, income, and remittances are saved in this device’s private browser database. This is not shared with other devices or staff, and it is not protected by individual user accounts. Download backups regularly. Restoring a backup replaces the records currently on this device.</p><div className="mt-5 flex flex-wrap gap-3"><button disabled={working} onClick={download} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-ink px-4 text-sm font-semibold text-white disabled:opacity-50"><Download size={17} />Download backup</button><label className={`inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-xl border border-stone px-4 text-sm font-semibold hover:bg-canvas ${working ? "pointer-events-none opacity-50" : ""}`}><input type="file" accept="application/json,.json" onChange={restore} className="sr-only" /><FileText size={17} />Restore backup</label></div><div className="mt-6 flex items-start gap-3 rounded-xl bg-canvas p-4 text-sm leading-6 text-ink/65"><ShieldAlert size={18} className="mt-0.5 shrink-0 text-brand-700" /><p>There is no cloud account, team sync, or server backup in this version. Anyone with access to this browser profile can open its fleet records.</p></div></Card></>;
+    return <><PageHeading eyebrow="Account & data" title="Backup & settings" description="Export a copy of the shared fleet records." /><Card className="max-w-3xl"><span className="grid h-11 w-11 place-items-center rounded-xl bg-ink text-white"><FileText size={20} /></span><h2 className="mt-4 text-lg font-semibold">Shared fleet export</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-ink/65">These records are loaded from the protected fleet database and shared with authorized team members. Download an export whenever you need an additional offline copy.</p><div className="mt-5"><button disabled={working} onClick={download} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-ink px-4 text-sm font-semibold text-white disabled:opacity-50"><Download size={17} />Download fleet export</button></div><div className="mt-6 flex items-start gap-3 rounded-xl bg-canvas p-4 text-sm leading-6 text-ink/65"><ShieldAlert size={18} className="mt-0.5 shrink-0 text-brand-700" /><p>Only authorized accounts can open or change this fleet. Sign out before handing your phone to someone else.</p></div></Card></>;
 }
 
 function RecordForm({ type, record, data, onClose, onSave }) {
@@ -285,6 +319,7 @@ function RecordForm({ type, record, data, onClose, onSave }) {
         if (type === "driver" && !values.name.trim()) return setFormError("Enter the driver’s name.");
         if (type === "expense" && (!values.vehicleId || !values.item.trim() || !Number.isFinite(amount) || amount <= 0)) return setFormError("Choose a vehicle, enter the item, and enter a cost greater than zero.");
         if ((type === "income" || type === "remittance") && (!Number.isFinite(amount) || amount <= 0)) return setFormError("Enter an amount greater than zero.");
+        if (type === "remittance" && !values.driverId) return setFormError("Choose the driver who made this remittance.");
         const vehicle = data.vehicles.find((item) => item.id === values.vehicleId);
         const driver = data.drivers.find((item) => item.id === values.driverId);
         const payload = { ...values, ...(record?.id ? { id: record.id } : {}) };

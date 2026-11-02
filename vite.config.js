@@ -1,6 +1,5 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import { VitePWA } from "vite-plugin-pwa";
 import { cloudflare } from "@cloudflare/vite-plugin";
 
 /**
@@ -30,64 +29,6 @@ export default defineConfig({
   plugins: [
     restartOnTailwindConfigChange(),
     react(),
-    VitePWA({
-      registerType: "autoUpdate",
-      includeAssets: [
-        "favicon.png",
-        "favicon.svg",
-        "ip-motors-logo.webp",
-        "ip-motors-mark.webp",
-        "icon-192.png",
-        "icon-512.png",
-        "icon-512-maskable.png",
-        "apple-touch-icon.png",
-      ],
-      manifest: {
-        id: "/",
-        name: "IP Motors Fleet Manager",
-        short_name: "IP Motors Fleet",
-        description: "On-device vehicle, driver, maintenance, and finance records for IP Motors.",
-        theme_color: "#131313",
-        background_color: "#f2f2f2",
-        display: "standalone",
-        display_override: ["standalone", "minimal-ui"],
-        orientation: "any",
-        start_url: "/",
-        scope: "/",
-        lang: "en",
-        categories: ["business", "productivity", "utilities"],
-        icons: [
-          {
-            src: "icon-192.png",
-            sizes: "192x192",
-            type: "image/png",
-          },
-          {
-            src: "icon-512.png",
-            sizes: "512x512",
-            type: "image/png",
-          },
-          {
-            src: "icon-512-maskable.png",
-            sizes: "512x512",
-            type: "image/png",
-            purpose: "maskable",
-          },
-        ],
-      },
-      workbox: {
-        runtimeCaching: [
-          {
-            urlPattern: /^https:\/\/fonts\.(googleapis|gstatic)\.com\/.*/i,
-            handler: "CacheFirst",
-            options: {
-              cacheName: "google-fonts",
-              expiration: { maxEntries: 20, maxAgeSeconds: 60 * 60 * 24 * 365 },
-            },
-          },
-        ],
-      },
-    }),
     cloudflare(),
   ],
 });
