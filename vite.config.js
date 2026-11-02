@@ -45,7 +45,7 @@ export default defineConfig({
         id: "/",
         name: "IP Motors Fleet Manager",
         short_name: "IP Motors Fleet",
-        description: "On-device vehicle, driver, maintenance, and finance records for IP Motors.",
+        description: "Shared vehicle, driver, maintenance, and finance operations for IP Motors.",
         theme_color: "#131313",
         background_color: "#f2f2f2",
         display: "standalone",
