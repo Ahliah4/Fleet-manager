@@ -2,10 +2,10 @@ import "dotenv/config";
 import { createHash } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
-import pg from "pg";
+import { Client } from "@neondatabase/serverless";
 import { describeDatabaseTarget } from "../src/config.js";
+import "../src/db/neon.js";
 
-const { Client } = pg;
 const MIGRATION_LOCK_ID = 7_364_920_1;
 
 interface MigrationFile {
@@ -45,24 +45,36 @@ async function main(): Promise<void> {
       "MIGRATION_DATABASE_URL is required. Use the development branch owner/direct connection. The API's DATABASE_URL is not used for migrations.",
     );
   }
+  assertDirectMigrationEndpoint(databaseUrl);
 
   const target = describeDatabaseTarget(databaseUrl);
-  const ssl = (process.env.DATABASE_SSL ?? "true") === "true";
   const migrations = await readMigrations();
 
+  // Migrations need one long-lived WebSocket session: session-level advisory
+  // locks and interactive BEGIN/COMMIT blocks are not available over Neon's
+  // one-shot HTTP SQL interface.
   const client = new Client({
     connectionString: databaseUrl,
-    ssl: ssl ? { rejectUnauthorized: true } : undefined,
     application_name: "fleet-migrate",
-    options: "-c statement_timeout=60000 -c timezone=UTC",
+    connectionTimeoutMillis: 10_000,
   });
 
-  await client.connect();
+  let connected = false;
   try {
-    await client.query("SELECT pg_advisory_lock($1)", [MIGRATION_LOCK_ID]);
-    await ensureLedger(client);
+    await client.connect();
+    connected = true;
 
-    const applied = await loadApplied(client);
+    // The WebSocket proxy does not accept pg's `options` startup parameter, so
+    // session settings are applied once on the open connection.
+    await client.query("SET statement_timeout = 60000");
+    await client.query("SET TIME ZONE 'UTC'");
+
+    await client.query("SELECT pg_advisory_lock($1)", [MIGRATION_LOCK_ID]);
+
+    // Status is read-only: never create the ledger just to report progress.
+    // Applying creates it only after --confirm-target matches.
+    const ledgerExists = await migrationLedgerExists(client);
+    const applied = ledgerExists ? await loadApplied(client) : [];
     const appliedByVersion = new Map(applied.map((row) => [row.version, row]));
 
     for (const migration of migrations) {
@@ -85,6 +97,11 @@ async function main(): Promise<void> {
     }
 
     if (!apply) {
+      if (!ledgerExists) {
+        console.log(
+          "Ledger: not created yet. Every migration is pending; --apply creates it.",
+        );
+      }
       console.log("No changes applied. Re-run with --apply to apply pending migrations.");
       return;
     }
@@ -99,6 +116,10 @@ async function main(): Promise<void> {
       throw new Error(
         `Refusing to apply migrations: --confirm-target did not match the connected database.`,
       );
+    }
+
+    if (!ledgerExists) {
+      await ensureLedger(client);
     }
 
     for (const migration of migrations) {
@@ -130,15 +151,31 @@ async function main(): Promise<void> {
     }
     console.log("Migrations complete.");
   } finally {
-    await client.query("SELECT pg_advisory_unlock($1)", [MIGRATION_LOCK_ID]).catch(
-      () => undefined,
-    );
-    await client.end();
+    if (connected) {
+      await client
+        .query("SELECT pg_advisory_unlock($1)", [MIGRATION_LOCK_ID])
+        .catch(() => undefined);
+    }
+    await client.end().catch(() => undefined);
   }
 }
 
-async function readMigrations(): Promise<MigrationFile[]> {
-  const directory = path.resolve(process.cwd(), "migrations");
+function assertDirectMigrationEndpoint(databaseUrl: string): void {
+  let hostname: string;
+  try {
+    hostname = new URL(databaseUrl).hostname;
+  } catch {
+    // The connection layer reports an invalid URL without echoing it.
+    return;
+  }
+  if (hostname.includes("-pooler.")) {
+    throw new Error(
+      "MIGRATION_DATABASE_URL must use the direct (unpooled) Neon endpoint. Session advisory locks are not safe through a transaction pooler.",
+    );
+  }
+}
+
+async function readMigrations(): Promise<MigrationFile[]> {  const directory = path.resolve(process.cwd(), "migrations");
   const files = (await readdir(directory))
     .filter((file) => /^\d+_[a-z0-9_]+\.sql$/i.test(file))
     .sort((left, right) => left.localeCompare(right));
@@ -152,7 +189,7 @@ async function readMigrations(): Promise<MigrationFile[]> {
   );
 }
 
-async function ensureLedger(client: pg.Client): Promise<void> {
+async function ensureLedger(client: Client): Promise<void> {
   await client.query(
     `CREATE TABLE IF NOT EXISTS schema_migrations (
        version text PRIMARY KEY,
@@ -163,7 +200,14 @@ async function ensureLedger(client: pg.Client): Promise<void> {
   );
 }
 
-async function loadApplied(client: pg.Client): Promise<AppliedMigration[]> {
+async function migrationLedgerExists(client: Client): Promise<boolean> {
+  const result = await client.query<{ present: boolean }>(
+    `SELECT to_regclass('public.schema_migrations') IS NOT NULL AS present`,
+  );
+  return result.rows[0]?.present === true;
+}
+
+async function loadApplied(client: Client): Promise<AppliedMigration[]> {
   const result = await client.query<AppliedMigration>(
     `SELECT version, checksum, applied_at
      FROM schema_migrations
@@ -196,10 +240,73 @@ Without --apply, the command only prints applied and pending migrations.
 }
 
 main().catch((error: unknown) => {
-  console.error(
-    `Migration command failed. ${
-      error instanceof Error ? error.message : "Unknown error"
-    }`,
-  );
+  console.error(`Migration command failed: ${formatSafeError(error)}`);
   process.exitCode = 1;
 });
+
+function formatSafeError(error: unknown): string {
+  if (!(error instanceof Error)) {
+    // WebSocket failures can surface as DOM-style events rather than Errors.
+    if (typeof error === "string") {
+      return redactSecrets(error);
+    }
+    if (error && typeof error === "object") {
+      const event = error as {
+        type?: unknown;
+        message?: unknown;
+        code?: unknown;
+        error?: unknown;
+      };
+      const parts: string[] = [];
+      if (typeof event.type === "string" && event.type) {
+        parts.push(event.type);
+      }
+      if (typeof event.code === "string" && event.code) {
+        parts.push(`code=${event.code}`);
+      }
+      if (typeof event.message === "string" && event.message) {
+        parts.push(redactSecrets(event.message));
+      }
+      if (event.error instanceof Error) {
+        parts.push(redactSecrets(event.error.message));
+      }
+      return parts.join(" | ") || "Unknown connection error.";
+    }
+    return "Unknown error.";
+  }
+
+  const parts = [error.name];
+  const code = "code" in error && typeof error.code === "string"
+    ? error.code
+    : undefined;
+  if (code) {
+    parts.push(`code=${code}`);
+  }
+
+  const message = redactSecrets(error.message.trim());
+  if (message) {
+    parts.push(message);
+  } else {
+    parts.push("No error message was provided.");
+  }
+
+  if (error.cause instanceof Error) {
+    const causeCode = "code" in error.cause && typeof error.cause.code === "string"
+      ? error.cause.code
+      : undefined;
+    parts.push(
+      `cause=${redactSecrets(
+        `${causeCode ? `${causeCode}: ` : ""}${error.cause.message || error.cause.name}`,
+      )}`,
+    );
+  }
+
+  return parts.join(" | ");
+}
+
+function redactSecrets(value: string): string {
+  return value.replace(
+    /(?:postgres(?:ql)?|wss?):\/\/[^\s"']+/gi,
+    "[database URL redacted]",
+  );
+}

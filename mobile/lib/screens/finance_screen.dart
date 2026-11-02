@@ -27,6 +27,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
   String _tab = 'Income';
   RemittancePeriod _period = RemittancePeriod.forDate(DateTime.now());
   bool _showPeriodOnly = true;
+  bool _showFilters = false;
   String _query = '';
 
   Future<void> _recordIncome() async {
@@ -155,19 +156,11 @@ class _FinanceScreenState extends State<FinanceScreen> {
               entry.periodEnd == _period.endIso,
         )
         .toList();
-    final periodExpenses = activeExpenses
-        .where((entry) => _period.contains(entry.entryDate))
-        .toList();
-
     final incomeTotal = periodIncome.fold<double>(
       0,
       (sum, entry) => sum + entry.amount,
     );
     final remittanceTotal = periodRemittances.fold<double>(
-      0,
-      (sum, entry) => sum + entry.amount,
-    );
-    final expenseTotal = periodExpenses.fold<double>(
       0,
       (sum, entry) => sum + entry.amount,
     );
@@ -214,71 +207,26 @@ class _FinanceScreenState extends State<FinanceScreen> {
       color: FleetColors.ink,
       onRefresh: widget.onChanged,
       child: LayoutBuilder(
-        builder: (context, constraints) {
-          final wide = constraints.maxWidth >= 760;
+        builder: (context, _) {
           return ListView(
-            padding: EdgeInsets.fromLTRB(
-              wide ? 30 : 18,
-              22,
-              wide ? 30 : 18,
-              28,
-            ),
+            padding: screenPadding(context),
             children: [
               PageHeading(
-                eyebrow: 'Fleet finance',
-                title: 'Income & remittances',
-                description:
-                    'Daily income and driver remittances are separate records. '
-                    'Income is never silently netted against expenses.',
-                action: PopupMenuButton<String>(
-                  tooltip: 'Add finance entry',
-                  onSelected: (value) {
-                    if (value == 'income') {
-                      _recordIncome();
-                    } else {
-                      _recordRemittance();
-                    }
-                  },
-                  itemBuilder: (context) => const [
-                    PopupMenuItem(
-                      value: 'income',
-                      child: Text('Record income'),
-                    ),
-                    PopupMenuItem(
-                      value: 'remittance',
-                      child: Text('Record remittance'),
-                    ),
-                  ],
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 13,
-                      vertical: 10,
-                    ),
-                    decoration: BoxDecoration(
-                      color: FleetColors.ink,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.add_rounded,
-                          size: 18,
-                          color: FleetColors.white,
-                        ),
-                        SizedBox(width: 5),
-                        Text(
-                          'Record',
-                          style: TextStyle(
-                            color: FleetColors.white,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ],
+                title: 'Finance',
+                subtitle:
+                    '${formatMoney(incomeTotal)} income · '
+                    '${formatMoney(remittanceTotal)} remittances',
+                actions: [
+                  FilledButton.icon(
+                    onPressed: _tab == 'Income'
+                        ? _recordIncome
+                        : _recordRemittance,
+                    icon: const Icon(Icons.add_rounded, size: 18),
+                    label: Text(
+                      _tab == 'Income' ? 'Add income' : 'Add remittance',
                     ),
                   ),
-                ),
+                ],
               ),
               const SizedBox(height: 14),
               _PeriodSelector(
@@ -290,55 +238,17 @@ class _FinanceScreenState extends State<FinanceScreen> {
                 ),
               ),
               const SizedBox(height: 12),
-              GridView.count(
-                crossAxisCount: wide ? 4 : 2,
-                crossAxisSpacing: 10,
-                mainAxisSpacing: 10,
-                childAspectRatio: wide ? 1.45 : 1.18,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                children: [
-                  MetricTile(
-                    label: 'Income in period',
-                    value: formatMoney(incomeTotal),
-                    helper: '${periodIncome.length} income entries',
-                    icon: Icons.add_card_rounded,
-                    dark: true,
-                  ),
-                  MetricTile(
-                    label: 'Remittances in period',
-                    value: formatMoney(remittanceTotal),
-                    helper: '${periodRemittances.length} payments',
-                    icon: Icons.account_balance_wallet_outlined,
-                  ),
-                  MetricTile(
-                    label: 'Remittance balance',
-                    value: formatMoney(balance),
-                    helper: 'Income minus remittances only',
-                    icon: balance < 0
-                        ? Icons.trending_down_rounded
-                        : Icons.trending_up_rounded,
-                    alert: balance < 0,
-                    success: balance > 0,
-                  ),
-                  MetricTile(
-                    label: 'Operating costs',
-                    value: formatMoney(expenseTotal),
-                    helper: 'Tracked separately, not netted',
-                    icon: Icons.build_outlined,
-                  ),
+              SummaryHero(
+                eyebrow: _period.label,
+                value: formatMoney(incomeTotal),
+                label: 'Income recorded',
+                icon: Icons.add_card_rounded,
+                stats: [
+                  HeroStat('Remittances', formatMoney(remittanceTotal)),
+                  HeroStat('Balance', formatMoney(balance), alert: balance < 0),
                 ],
               ),
-              const SizedBox(height: 11),
-              const InfoBanner(
-                icon: Icons.call_split_rounded,
-                text:
-                    'The remittance balance is a reconciliation figure for '
-                    'this 10-day period (income recorded minus remittances '
-                    'received). It is not profit. Vehicle operating costs are '
-                    'shown separately and are never silently subtracted.',
-              ),
-              const SizedBox(height: 15),
+              const SizedBox(height: 12),
               SegmentedButton<String>(
                 segments: const [
                   ButtonSegment(
@@ -359,66 +269,64 @@ class _FinanceScreenState extends State<FinanceScreen> {
                     _query = '';
                   });
                 },
-                style: ButtonStyle(
-                  visualDensity: VisualDensity.compact,
-                  backgroundColor: WidgetStateProperty.resolveWith((states) {
-                    if (states.contains(WidgetState.selected)) {
-                      return FleetColors.ink;
-                    }
-                    return FleetColors.white;
-                  }),
-                  foregroundColor: WidgetStateProperty.resolveWith((states) {
-                    if (states.contains(WidgetState.selected)) {
-                      return FleetColors.white;
-                    }
-                    return FleetColors.ink;
-                  }),
-                ),
+                style: const ButtonStyle(visualDensity: VisualDensity.compact),
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 6),
               Row(
                 children: [
                   Expanded(
-                    child: TextField(
-                      onChanged: (value) => setState(() => _query = value),
-                      decoration: InputDecoration(
-                        prefixIcon: const Icon(Icons.search_rounded),
-                        hintText: _tab == 'Income'
-                            ? 'Search description, driver, vehicle'
-                            : 'Search driver, vehicle, reference',
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 8,
-                        ),
+                    child: Text(
+                      _showPeriodOnly ? _period.label : 'All history',
+                      style: const TextStyle(
+                        fontSize: 11.5,
+                        color: FleetColors.muted,
                       ),
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  FilterChip(
-                    label: Text(
-                      _showPeriodOnly ? 'This period' : 'All history',
+                  TextButton.icon(
+                    onPressed: () =>
+                        setState(() => _showFilters = !_showFilters),
+                    icon: Icon(
+                      _showFilters
+                          ? Icons.expand_less_rounded
+                          : Icons.tune_rounded,
+                      size: 18,
                     ),
-                    selected: _showPeriodOnly,
-                    onSelected: (value) =>
-                        setState(() => _showPeriodOnly = value),
-                    selectedColor: FleetColors.ink,
-                    labelStyle: TextStyle(
-                      fontSize: 10.5,
-                      color: _showPeriodOnly
-                          ? FleetColors.white
-                          : FleetColors.ink,
-                    ),
-                    backgroundColor: FleetColors.white,
-                    side: const BorderSide(color: FleetColors.warmGrey),
+                    label: Text(_showFilters ? 'Hide filters' : 'Filters'),
+                    style: TextButton.styleFrom(minimumSize: const Size(0, 36)),
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
+              if (_showFilters) ...[
+                const SizedBox(height: 2),
+                FleetSearchField(
+                  key: ValueKey('finance-$_tab'),
+                  hint: _tab == 'Income'
+                      ? 'Search description, driver, vehicle'
+                      : 'Search driver, vehicle, reference',
+                  onChanged: (value) => setState(() => _query = value),
+                ),
+                const SizedBox(height: 8),
+                FilterWrap(
+                  children: [
+                    DateFilterChip(
+                      label: 'This period',
+                      selected: _showPeriodOnly,
+                      onTap: () => setState(() => _showPeriodOnly = true),
+                    ),
+                    DateFilterChip(
+                      label: 'All history',
+                      selected: !_showPeriodOnly,
+                      onTap: () => setState(() => _showPeriodOnly = false),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+              ],
               if (_tab == 'Income')
                 _IncomeList(
                   entries: incomeEntries,
                   hasAny: widget.snapshot.income.isNotEmpty,
-                  onAdd: _recordIncome,
                   onVoid: _voidIncome,
                   onClearSearch: () => setState(() => _query = ''),
                   hasQuery: _query.trim().isNotEmpty,
@@ -428,21 +336,18 @@ class _FinanceScreenState extends State<FinanceScreen> {
                 _RemittanceList(
                   entries: remittanceEntries,
                   hasAny: widget.snapshot.remittances.isNotEmpty,
-                  onAdd: _recordRemittance,
                   onVoid: _voidRemittance,
                   onClearSearch: () => setState(() => _query = ''),
                   hasQuery: _query.trim().isNotEmpty,
                   showPeriodOnly: _showPeriodOnly,
                 ),
-              const SizedBox(height: 13),
+              const SizedBox(height: 12),
               SectionCard(
+                padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const PanelHeading(
-                      title: 'All-time recorded totals',
-                      trailing: 'SEPARATE',
-                    ),
+                    const PanelHeading(title: 'All-time totals'),
                     const SizedBox(height: 10),
                     Row(
                       children: [
@@ -450,7 +355,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
                           child: _TotalStat(
                             label: 'INCOME',
                             value: formatMoney(allIncome),
-                            color: FleetColors.green,
+                            color: FleetColors.success,
                           ),
                         ),
                         const SizedBox(width: 7),
@@ -466,36 +371,14 @@ class _FinanceScreenState extends State<FinanceScreen> {
                           child: _TotalStat(
                             label: 'EXPENSES',
                             value: formatMoney(allExpenses),
-                            color: FleetColors.red,
+                            color: FleetColors.ink,
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 8),
-                    Text(
-                      '${activeIncome.length} income, '
-                      '${activeRemittances.length} remittance, and '
-                      '${activeExpenses.length} expense entries. Voided '
-                      'entries are excluded from these totals.',
-                      style: const TextStyle(
-                        fontSize: 9.5,
-                        color: FleetColors.muted,
-                        height: 1.4,
-                      ),
-                    ),
                   ],
                 ),
               ),
-              const SizedBox(height: 10),
-              const InfoBanner(
-                icon: Icons.lock_outline_rounded,
-                text:
-                    'Financial history is protected. Income and remittance '
-                    'entries cannot be deleted; void an entry with a reason to '
-                    'correct it while keeping the record.',
-              ),
-              const SizedBox(height: 9),
-              const LocalDataNotice(),
             ],
           );
         },
@@ -559,7 +442,7 @@ class _PeriodSelector extends StatelessWidget {
                         fontSize: 8.5,
                         fontWeight: FontWeight.w700,
                         letterSpacing: .6,
-                        color: FleetColors.green,
+                        color: FleetColors.success,
                       ),
                     ),
                   )
@@ -593,7 +476,6 @@ class _IncomeList extends StatelessWidget {
   const _IncomeList({
     required this.entries,
     required this.hasAny,
-    required this.onAdd,
     required this.onVoid,
     required this.onClearSearch,
     required this.hasQuery,
@@ -602,7 +484,6 @@ class _IncomeList extends StatelessWidget {
 
   final List<Income> entries;
   final bool hasAny;
-  final VoidCallback onAdd;
   final ValueChanged<Income> onVoid;
   final VoidCallback onClearSearch;
   final bool hasQuery;
@@ -615,27 +496,8 @@ class _IncomeList extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              const Expanded(child: PanelHeading(title: 'Income history')),
-              FilledButton.icon(
-                onPressed: onAdd,
-                icon: const Icon(Icons.add_rounded, size: 16),
-                label: const Text('Income'),
-                style: FilledButton.styleFrom(
-                  backgroundColor: FleetColors.ink,
-                  foregroundColor: FleetColors.white,
-                  visualDensity: VisualDensity.compact,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 5),
-          const Text(
-            'Daily earnings recorded by the owner or finance manager.',
-            style: TextStyle(fontSize: 10, color: FleetColors.muted),
-          ),
-          const SizedBox(height: 8),
+          const PanelHeading(title: 'Income history'),
+          const SizedBox(height: 6),
           if (entries.isEmpty)
             EmptyState(
               icon: Icons.add_card_rounded,
@@ -645,23 +507,15 @@ class _IncomeList extends StatelessWidget {
                         'entries.'
                   : 'Record daily income when it is received. Income is stored '
                         'separately from driver remittances and expenses.',
-              actionLabel: hasQuery ? 'Clear search' : 'Record income',
-              onAction: hasQuery ? onClearSearch : onAdd,
+              actionLabel: hasQuery ? 'Clear search' : null,
+              actionIcon: Icons.close_rounded,
+              onAction: hasQuery ? onClearSearch : null,
             )
           else
             ...entries.map(
               (entry) => _IncomeRow(
                 income: entry,
                 onVoid: entry.isVoided ? null : () => onVoid(entry),
-              ),
-            ),
-          if (showPeriodOnly && entries.isNotEmpty)
-            const Padding(
-              padding: EdgeInsets.only(top: 5, bottom: 4),
-              child: Text(
-                'Showing entries for the selected period. Tap “This period” to '
-                'show all saved history.',
-                style: TextStyle(fontSize: 9.5, color: FleetColors.muted),
               ),
             ),
         ],
@@ -674,7 +528,6 @@ class _RemittanceList extends StatelessWidget {
   const _RemittanceList({
     required this.entries,
     required this.hasAny,
-    required this.onAdd,
     required this.onVoid,
     required this.onClearSearch,
     required this.hasQuery,
@@ -683,7 +536,6 @@ class _RemittanceList extends StatelessWidget {
 
   final List<Remittance> entries;
   final bool hasAny;
-  final VoidCallback onAdd;
   final ValueChanged<Remittance> onVoid;
   final VoidCallback onClearSearch;
   final bool hasQuery;
@@ -696,27 +548,8 @@ class _RemittanceList extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              const Expanded(child: PanelHeading(title: 'Remittance history')),
-              FilledButton.icon(
-                onPressed: onAdd,
-                icon: const Icon(Icons.add_rounded, size: 16),
-                label: const Text('Remittance'),
-                style: FilledButton.styleFrom(
-                  backgroundColor: FleetColors.ink,
-                  foregroundColor: FleetColors.white,
-                  visualDensity: VisualDensity.compact,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 5),
-          const Text(
-            'Money received from drivers, tracked against 10-day periods.',
-            style: TextStyle(fontSize: 10, color: FleetColors.muted),
-          ),
-          const SizedBox(height: 8),
+          const PanelHeading(title: 'Remittance history'),
+          const SizedBox(height: 6),
           if (entries.isEmpty)
             EmptyState(
               icon: Icons.account_balance_wallet_outlined,
@@ -729,23 +562,15 @@ class _RemittanceList extends StatelessWidget {
                   : 'Record a remittance after receiving money from a driver. '
                         'Payments are separate from income and are never matched '
                         'automatically.',
-              actionLabel: hasQuery ? 'Clear search' : 'Record remittance',
-              onAction: hasQuery ? onClearSearch : onAdd,
+              actionLabel: hasQuery ? 'Clear search' : null,
+              actionIcon: Icons.close_rounded,
+              onAction: hasQuery ? onClearSearch : null,
             )
           else
             ...entries.map(
               (entry) => _RemittanceRow(
                 remittance: entry,
                 onVoid: entry.isVoided ? null : () => onVoid(entry),
-              ),
-            ),
-          if (showPeriodOnly && entries.isNotEmpty)
-            const Padding(
-              padding: EdgeInsets.only(top: 5, bottom: 4),
-              child: Text(
-                'Showing payments assigned to the selected period. Tap “This '
-                'period” to show all saved history.',
-                style: TextStyle(fontSize: 9.5, color: FleetColors.muted),
               ),
             ),
         ],
@@ -773,13 +598,16 @@ class _IncomeRow extends StatelessWidget {
             width: 34,
             height: 34,
             decoration: BoxDecoration(
-              color: FleetColors.canvas,
+              color: FleetColors.mist.withValues(alpha: .62),
               borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: FleetColors.warmGrey.withValues(alpha: .65),
+              ),
             ),
             child: Icon(
               Icons.add_card_rounded,
               size: 17,
-              color: income.isVoided ? FleetColors.muted : FleetColors.green,
+              color: income.isVoided ? FleetColors.muted : FleetColors.ink,
             ),
           ),
           const SizedBox(width: 9),
@@ -814,7 +642,7 @@ class _IncomeRow extends StatelessWidget {
                         style: const TextStyle(
                           fontSize: 11.5,
                           fontWeight: FontWeight.w800,
-                          color: FleetColors.green,
+                          color: FleetColors.success,
                         ),
                       ),
                   ],
@@ -838,6 +666,20 @@ class _IncomeRow extends StatelessWidget {
                     height: 1.35,
                   ),
                 ),
+                if (income.notes?.isNotEmpty == true)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 3),
+                    child: Text(
+                      'Notes: ${income.notes}',
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 9.5,
+                        color: FleetColors.ink,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
                 if (income.isVoided && income.voidReason?.isNotEmpty == true)
                   Padding(
                     padding: const EdgeInsets.only(top: 2),
@@ -961,6 +803,20 @@ class _RemittanceRow extends StatelessWidget {
                     height: 1.35,
                   ),
                 ),
+                if (remittance.notes?.isNotEmpty == true)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 3),
+                    child: Text(
+                      'Notes: ${remittance.notes}',
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 9.5,
+                        color: FleetColors.ink,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
                 if (remittance.isVoided &&
                     remittance.voidReason?.isNotEmpty == true)
                   Padding(

@@ -1,4 +1,4 @@
-import type { PoolClient } from "pg";
+import type { PoolClient } from "@neondatabase/serverless";
 import { notFound } from "../domain/errors.js";
 import type { FleetSession } from "../domain/session.js";
 import type { ListResult } from "./vehicles.js";

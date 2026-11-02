@@ -170,6 +170,19 @@ describe("authentication boundary", () => {
     expect(response.json().recovery.nextStep).toMatch(/invite/i);
   });
 
+  it("rejects a valid Neon identity that has no application user mapping", async () => {
+    const { app, database } = await createApp();
+    database.session = null;
+    const response = await app.inject({
+      method: "GET",
+      url: "/v1/me",
+      headers: authHeaders(),
+    });
+    expect(response.statusCode).toBe(403);
+    expect(response.json().error.code).toBe("ACCOUNT_NOT_PROVISIONED");
+    expect(database.fleetCalls).toBe(0);
+  });
+
   it("does not show fleet recovery to a platform administrator", async () => {
     const { app } = await createApp({ session: makePlatformSession() });
     const response = await app.inject({
@@ -203,6 +216,153 @@ describe("authentication boundary", () => {
 });
 
 describe("tenant and role enforcement", () => {
+  it("does not let a fleet member read or create membership invitations", async () => {
+    const { app, database } = await createApp({
+      session: makeSession("fleet_member"),
+    });
+    const list = await app.inject({
+      method: "GET",
+      url: "/v1/members/invitations",
+      headers: authHeaders(),
+    });
+    const create = await app.inject({
+      method: "POST",
+      url: "/v1/members/invitations",
+      headers: authHeaders(),
+      payload: { email: "driver@example.test", role: "fleet_member" },
+    });
+    expect(list.statusCode).toBe(403);
+    expect(create.statusCode).toBe(403);
+    expect(database.fleetCalls).toBe(0);
+  });
+
+  it("does not let an administrator invite another administrator", async () => {
+    const { app, database } = await createApp({
+      session: makeSession("fleet_admin"),
+    });
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/members/invitations",
+      headers: authHeaders(),
+      payload: { email: "admin@example.test", role: "fleet_admin" },
+    });
+    expect(response.statusCode).toBe(403);
+    expect(response.json().error.code).toBe("PERMISSION_DENIED");
+    expect(database.fleetCalls).toBe(0);
+  });
+
+  it("creates a member invitation from the server-resolved fleet and audits it", async () => {
+    const queries: string[] = [];
+    const invitationId = "f0000001-0000-4000-8000-000000000001";
+    const { app } = await createApp({
+      session: makeSession("fleet_owner"),
+      queryHandler: async (sql, params) => {
+        queries.push(sql);
+        if (sql.includes("INSERT INTO fleet_invitations")) {
+          expect(params?.[0]).toBe(FLEET_ID);
+          expect(params?.[1]).toBe("driver@example.test");
+          expect(params?.[2]).toBe("fleet_member");
+          return {
+            rows: [{
+              id: invitationId,
+              invitedEmail: "driver@example.test",
+              role: "fleet_member",
+              status: "pending",
+              invitedAt: new Date(),
+              expiresAt: new Date(),
+              acceptedAt: null,
+              revokedAt: null,
+            }],
+            rowCount: 1,
+          };
+        }
+        return { rows: [], rowCount: 1 };
+      },
+    });
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/members/invitations",
+      headers: authHeaders(),
+      payload: { email: "DRIVER@EXAMPLE.TEST", role: "fleet_member" },
+    });
+    expect(response.statusCode).toBe(201);
+    expect(response.json().invitation.id).toBe(invitationId);
+    expect(queries.some((sql) => sql.includes("INSERT INTO audit_events"))).toBe(true);
+  });
+
+  it("scopes invitation revocation to the authenticated fleet", async () => {
+    const queries: string[] = [];
+    const { app } = await createApp({
+      session: makeSession("fleet_owner"),
+      queryHandler: async (sql, params) => {
+        queries.push(sql);
+        if (sql.includes("UPDATE fleet_invitations")) {
+          expect(params?.[1]).toBe(FLEET_ID);
+          return { rows: [], rowCount: 0 };
+        }
+        return { rows: [], rowCount: 0 };
+      },
+    });
+    const response = await app.inject({
+      method: "DELETE",
+      url: "/v1/members/invitations/f0000001-0000-4000-8000-000000000001",
+      headers: authHeaders(),
+    });
+    expect(response.statusCode).toBe(404);
+    expect(queries.some((sql) => sql.includes("UPDATE fleet_invitations"))).toBe(true);
+  });
+
+  it("accepts an invitation only through the user-scoped database function", async () => {
+    const invitationId = "f0000001-0000-4000-8000-000000000001";
+    const { app, database } = await createApp({
+      session: {
+        user: { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", displayName: "Invited User" },
+        membership: null,
+        platformAdmin: false,
+      },
+      queryHandler: async (sql, params) => {
+        expect(sql).toContain("app_security.accept_fleet_invitation");
+        expect(params).toEqual([invitationId]);
+        return {
+          rows: [{
+            membershipId: "b0000001-0000-4000-8000-000000000001",
+            fleetId: FLEET_ID,
+            role: "fleet_member",
+          }],
+          rowCount: 1,
+        };
+      },
+    });
+    const response = await app.inject({
+      method: "POST",
+      url: `/v1/members/invitations/${invitationId}/accept`,
+      headers: authHeaders(),
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().invitation.fleetId).toBe(FLEET_ID);
+    expect(database.userCalls).toBe(1);
+    expect(database.fleetCalls).toBe(0);
+  });
+
+  it("does not reveal whether an invitation belongs to another account", async () => {
+    const { app, database } = await createApp({
+      session: {
+        user: { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", displayName: "Invited User" },
+        membership: null,
+        platformAdmin: false,
+      },
+      queryHandler: async () => ({ rows: [], rowCount: 0 }),
+    });
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/members/invitations/f0000001-0000-4000-8000-000000000001/accept",
+      headers: authHeaders(),
+    });
+    expect(response.statusCode).toBe(404);
+    expect(response.json().error.message).not.toMatch(/email|fleet/i);
+    expect(database.userCalls).toBe(1);
+  });
+
   it("rejects client-supplied fleetId or role before touching the database", async () => {
     const { app, database } = await createApp({
       session: makeSession("fleet_member"),

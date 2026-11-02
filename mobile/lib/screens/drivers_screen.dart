@@ -24,6 +24,7 @@ class DriversScreen extends StatefulWidget {
 
 class _DriversScreenState extends State<DriversScreen> {
   String _query = '';
+  String _filter = 'All';
 
   Future<void> _openForm([Driver? driver]) async {
     final saved = await showModalBottomSheet<bool>(
@@ -202,7 +203,9 @@ class _DriversScreenState extends State<DriversScreen> {
                   '${driver.licenceNumber ?? ''} '
                   '${driver.assignedVehicleRegistration ?? ''}'
               .toLowerCase();
-      return haystack.contains(_query.trim().toLowerCase());
+      final matchesSearch = haystack.contains(_query.trim().toLowerCase());
+      final matchesFilter = _filter == 'All' || driver.availability == _filter;
+      return matchesSearch && matchesFilter;
     }).toList();
 
     final available = widget.snapshot.drivers
@@ -211,56 +214,72 @@ class _DriversScreenState extends State<DriversScreen> {
     final assigned = widget.snapshot.drivers
         .where((driver) => driver.availability == 'Assigned')
         .length;
+    final licenceAlerts = widget.snapshot.drivers.where((driver) {
+      final tone = dueTone(driver.licenceExpiry);
+      return tone == DueTone.overdue || tone == DueTone.soon;
+    }).length;
 
     return RefreshIndicator(
       color: FleetColors.ink,
       onRefresh: widget.onChanged,
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(18, 22, 18, 28),
+        padding: screenPadding(context),
         children: [
           PageHeading(
-            eyebrow: 'People',
             title: 'Drivers',
-            description:
-                '$available available · $assigned assigned · '
-                '${widget.snapshot.drivers.length} driver records. Drivers do '
-                'not sign in to this app.',
-            action: FilledButton.icon(
-              onPressed: () => _openForm(),
-              icon: const Icon(Icons.add_rounded, size: 18),
-              label: const Text('Add'),
-              style: FilledButton.styleFrom(
-                backgroundColor: FleetColors.ink,
-                foregroundColor: FleetColors.white,
+            subtitle: widget.snapshot.drivers.isEmpty
+                ? 'Add your first driver'
+                : '$available available · $assigned assigned'
+                      '${licenceAlerts > 0 ? ' · $licenceAlerts licence alerts' : ''}',
+            actions: [
+              FilledButton.icon(
+                onPressed: () => _openForm(),
+                icon: const Icon(Icons.add_rounded, size: 18),
+                label: const Text('Add driver'),
               ),
-            ),
+            ],
           ),
-          const SizedBox(height: 15),
-          TextField(
+          const SizedBox(height: 14),
+          StatBar(
+            stats: [
+              HeroStat('Drivers', '${widget.snapshot.drivers.length}'),
+              HeroStat('Available', '$available'),
+              HeroStat('Assigned', '$assigned'),
+              HeroStat(
+                'Licence alerts',
+                '$licenceAlerts',
+                alert: licenceAlerts > 0,
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          FleetSearchField(
+            hint: 'Search name, phone, licence, or vehicle',
             onChanged: (value) => setState(() => _query = value),
-            decoration: const InputDecoration(
-              prefixIcon: Icon(Icons.search_rounded),
-              hintText: 'Search name, phone, licence, or vehicle',
-            ),
           ),
-          const SizedBox(height: 13),
+          const SizedBox(height: 8),
+          FilterWrap(
+            children: ['All', 'Available', 'Assigned', 'Unavailable']
+                .map(
+                  (filter) => DateFilterChip(
+                    label: filter,
+                    selected: _filter == filter,
+                    onTap: () => setState(() => _filter = filter),
+                  ),
+                )
+                .toList(),
+          ),
+          const SizedBox(height: 12),
           if (drivers.isEmpty)
             SectionCard(
               child: EmptyState(
                 icon: Icons.people_outline_rounded,
                 title: widget.snapshot.drivers.isEmpty
-                    ? 'No drivers added yet'
+                    ? 'No drivers yet'
                     : 'No matching drivers',
                 body: widget.snapshot.drivers.isEmpty
-                    ? 'Add a driver record, then assign the driver to a '
-                          'vehicle. Drivers are records, not app users.'
-                    : 'Try another name, phone number, licence, or vehicle.',
-                actionLabel: widget.snapshot.drivers.isEmpty
-                    ? 'Add first driver'
-                    : null,
-                onAction: widget.snapshot.drivers.isEmpty
-                    ? () => _openForm()
-                    : null,
+                    ? 'Add a driver, then assign them to a vehicle.'
+                    : 'Try another name, phone number, licence, or filter.',
               ),
             )
           else
@@ -272,8 +291,6 @@ class _DriversScreenState extends State<DriversScreen> {
                 onDelete: () => _deleteDriver(driver),
               ),
             ),
-          const SizedBox(height: 8),
-          const LocalDataNotice(),
         ],
       ),
     );
@@ -361,17 +378,28 @@ class _DriverCard extends StatelessWidget {
                 PopupMenuButton<String>(
                   tooltip: 'Driver actions',
                   onSelected: (value) {
-                    if (value == 'edit') {
-                      onEdit();
-                    } else if (value == 'delete') {
-                      onDelete();
-                    }
+                    if (value == 'delete') onDelete();
                   },
                   itemBuilder: (context) => const [
-                    PopupMenuItem(value: 'edit', child: Text('Edit driver')),
                     PopupMenuItem(
                       value: 'delete',
-                      child: Text('Delete driver'),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.delete_outline_rounded,
+                            size: 18,
+                            color: FleetColors.red,
+                          ),
+                          SizedBox(width: 8),
+                          Text(
+                            'Delete driver',
+                            style: TextStyle(
+                              color: FleetColors.red,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),
@@ -425,7 +453,7 @@ class _DriverCard extends StatelessWidget {
                     Switch.adaptive(
                       value: driver.isAvailable,
                       onChanged: (_) => onToggleAvailability(),
-                      activeTrackColor: FleetColors.green,
+                      activeTrackColor: FleetColors.ink,
                     ),
                 ],
               ),
@@ -463,24 +491,13 @@ class _DriverCard extends StatelessWidget {
             ],
             const SizedBox(height: 7),
             const Divider(height: 1),
-            Row(
-              children: [
-                TextButton.icon(
-                  onPressed: onEdit,
-                  icon: const Icon(Icons.edit_outlined, size: 15),
-                  label: const Text('Edit & assign'),
-                ),
-                const Spacer(),
-                IconButton(
-                  onPressed: onDelete,
-                  tooltip: 'Delete driver',
-                  icon: const Icon(
-                    Icons.delete_outline_rounded,
-                    size: 18,
-                    color: FleetColors.muted,
-                  ),
-                ),
-              ],
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: onEdit,
+                icon: const Icon(Icons.edit_outlined, size: 15),
+                label: const Text('Edit & assign'),
+              ),
             ),
           ],
         ),
@@ -681,7 +698,7 @@ class _DriverFormSheetState extends State<_DriverFormSheet> {
                         'assignment.',
                         style: TextStyle(fontSize: 10.5),
                       ),
-                      activeTrackColor: FleetColors.green,
+                      activeTrackColor: FleetColors.ink,
                     ),
                     const SizedBox(height: 8),
                     const FormSectionTitle('Vehicle assignment'),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../data/fleet_database.dart';
+import '../models/app_role.dart';
 import '../models/fleet_snapshot.dart';
 import '../models/vehicle.dart';
 import '../ui/common.dart';
@@ -12,11 +13,13 @@ class VehiclesScreen extends StatefulWidget {
     super.key,
     required this.snapshot,
     required this.isLoading,
+    required this.role,
     required this.onChanged,
   });
 
   final FleetSnapshot snapshot;
   final bool isLoading;
+  final AppRole role;
   final Future<void> Function() onChanged;
 
   @override
@@ -55,6 +58,7 @@ class _VehiclesScreenState extends State<VehiclesScreen> {
       backgroundColor: FleetColors.canvas,
       builder: (context) => _VehicleDetailSheet(
         vehicle: vehicle,
+        canDelete: widget.role.canDeleteVehicles,
         hasActiveHire: widget.snapshot.hires.any(
           (hire) => hire.vehicleId == vehicle.id && hire.status == 'Active',
         ),
@@ -101,6 +105,14 @@ class _VehiclesScreenState extends State<VehiclesScreen> {
   }
 
   Future<void> _deleteVehicle(Vehicle vehicle) async {
+    if (!widget.role.canDeleteVehicles) {
+      showAppMessage(
+        context,
+        'Your local role can add and edit vehicles but cannot delete them.',
+        error: true,
+      );
+      return;
+    }
     final linkedExpenses = widget.snapshot.expenses
         .where((expense) => expense.vehicleId == vehicle.id)
         .length;
@@ -193,57 +205,68 @@ class _VehiclesScreenState extends State<VehiclesScreen> {
       return matchesText && matchesFilter;
     }).toList();
 
+    final available = widget.snapshot.vehicles
+        .where((vehicle) => vehicle.status == 'Available')
+        .length;
+    final onHire = widget.snapshot.vehicles
+        .where((vehicle) => vehicle.status == 'On hire')
+        .length;
+    final withDocumentAlerts = widget.snapshot.vehicles
+        .where((vehicle) => _VehicleCard._documentAlerts(vehicle).isNotEmpty)
+        .length;
+
     return RefreshIndicator(
       color: FleetColors.ink,
       onRefresh: widget.onChanged,
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(18, 22, 18, 28),
+        padding: screenPadding(context),
         children: [
           PageHeading(
-            eyebrow: 'Fleet register',
             title: 'Vehicles',
-            description:
-                '${widget.snapshot.vehicles.length} vehicle'
-                '${widget.snapshot.vehicles.length == 1 ? '' : 's'} saved on '
-                'this device. Search, update status, and track document dates.',
-            action: FilledButton.icon(
-              onPressed: () => _openForm(),
-              icon: const Icon(Icons.add_rounded, size: 18),
-              label: const Text('Add'),
-              style: FilledButton.styleFrom(
-                backgroundColor: FleetColors.ink,
-                foregroundColor: FleetColors.white,
+            subtitle: widget.snapshot.vehicles.isEmpty
+                ? 'Add your first vehicle'
+                : '$available available · $onHire on hire'
+                      '${withDocumentAlerts > 0 ? ' · $withDocumentAlerts with document alerts' : ''}',
+            actions: [
+              FilledButton.icon(
+                onPressed: () => _openForm(),
+                icon: const Icon(Icons.add_rounded, size: 18),
+                label: const Text('Add vehicle'),
               ),
-            ),
+            ],
           ),
-          const SizedBox(height: 15),
-          TextField(
+          const SizedBox(height: 14),
+          StatBar(
+            stats: [
+              HeroStat('Vehicles', '${widget.snapshot.vehicles.length}'),
+              HeroStat('Available', '$available'),
+              HeroStat('On hire', '$onHire'),
+              HeroStat(
+                'Alerts',
+                '$withDocumentAlerts',
+                alert: withDocumentAlerts > 0,
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          FleetSearchField(
+            hint: 'Search registration, make, model, or driver',
             onChanged: (value) => setState(() => _query = value),
-            decoration: const InputDecoration(
-              prefixIcon: Icon(Icons.search_rounded),
-              hintText: 'Search registration, make, model, or driver',
-            ),
           ),
-          const SizedBox(height: 10),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: ['All', ...vehicleStatuses].map((status) {
-                final count = status == 'All'
-                    ? widget.snapshot.vehicles.length
-                    : widget.snapshot.vehicles
-                          .where((vehicle) => vehicle.status == status)
-                          .length;
-                return Padding(
-                  padding: const EdgeInsets.only(right: 7),
-                  child: DateFilterChip(
-                    label: '$status ($count)',
-                    selected: _filter == status,
-                    onTap: () => setState(() => _filter = status),
-                  ),
-                );
-              }).toList(),
-            ),
+          const SizedBox(height: 8),
+          FilterWrap(
+            children: ['All', ...vehicleStatuses].map((status) {
+              final count = status == 'All'
+                  ? widget.snapshot.vehicles.length
+                  : widget.snapshot.vehicles
+                        .where((vehicle) => vehicle.status == status)
+                        .length;
+              return DateFilterChip(
+                label: '$status ($count)',
+                selected: _filter == status,
+                onTap: () => setState(() => _filter = status),
+              );
+            }).toList(),
           ),
           const SizedBox(height: 12),
           if (widget.isLoading)
@@ -258,19 +281,11 @@ class _VehiclesScreenState extends State<VehiclesScreen> {
               child: EmptyState(
                 icon: Icons.directions_car_outlined,
                 title: widget.snapshot.vehicles.isEmpty
-                    ? 'Your fleet register is empty'
+                    ? 'No vehicles yet'
                     : 'No matching vehicles',
                 body: widget.snapshot.vehicles.isEmpty
-                    ? 'Add your first vehicle to keep its details, status, and '
-                          'insurance, road tax, roadworthy, and service dates in '
-                          'one place.'
-                    : 'Try another registration, model, driver, or status filter.',
-                actionLabel: widget.snapshot.vehicles.isEmpty
-                    ? 'Add first vehicle'
-                    : null,
-                onAction: widget.snapshot.vehicles.isEmpty
-                    ? () => _openForm()
-                    : null,
+                    ? 'Add a vehicle to track its status, documents, and costs.'
+                    : 'Try another registration, model, driver, or status.',
               ),
             )
           else
@@ -278,13 +293,8 @@ class _VehiclesScreenState extends State<VehiclesScreen> {
               (vehicle) => _VehicleCard(
                 vehicle: vehicle,
                 onOpen: () => _openDetails(vehicle),
-                onEdit: () => _openForm(vehicle),
-                onStatus: (status) => _changeStatus(vehicle, status),
-                onDelete: () => _deleteVehicle(vehicle),
               ),
             ),
-          const SizedBox(height: 8),
-          const LocalDataNotice(),
         ],
       ),
     );
@@ -292,19 +302,10 @@ class _VehiclesScreenState extends State<VehiclesScreen> {
 }
 
 class _VehicleCard extends StatelessWidget {
-  const _VehicleCard({
-    required this.vehicle,
-    required this.onOpen,
-    required this.onEdit,
-    required this.onStatus,
-    required this.onDelete,
-  });
+  const _VehicleCard({required this.vehicle, required this.onOpen});
 
   final Vehicle vehicle;
   final VoidCallback onOpen;
-  final VoidCallback onEdit;
-  final ValueChanged<String> onStatus;
-  final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -326,8 +327,11 @@ class _VehicleCard extends StatelessWidget {
                     width: 42,
                     height: 42,
                     decoration: BoxDecoration(
-                      color: FleetColors.canvas,
+                      color: FleetColors.mist.withValues(alpha: .62),
                       borderRadius: BorderRadius.circular(13),
+                      border: Border.all(
+                        color: FleetColors.warmGrey.withValues(alpha: .7),
+                      ),
                     ),
                     child: const Icon(
                       Icons.directions_car_outlined,
@@ -366,45 +370,13 @@ class _VehicleCard extends StatelessWidget {
                       ],
                     ),
                   ),
-                  PopupMenuButton<String>(
-                    tooltip: 'Vehicle actions',
-                    onSelected: (value) {
-                      if (value == 'view') {
-                        onOpen();
-                      } else if (value == 'edit') {
-                        onEdit();
-                      } else if (value == 'delete') {
-                        onDelete();
-                      } else if (value.startsWith('status:')) {
-                        onStatus(value.substring('status:'.length));
-                      }
-                    },
-                    itemBuilder: (context) => [
-                      const PopupMenuItem(
-                        value: 'view',
-                        child: Text('View details'),
-                      ),
-                      const PopupMenuItem(
-                        value: 'edit',
-                        child: Text('Edit vehicle'),
-                      ),
-                      const PopupMenuDivider(),
-                      ...vehicleStatuses.map(
-                        (status) => PopupMenuItem(
-                          value: 'status:$status',
-                          child: Text(
-                            status == vehicle.status
-                                ? 'Status: $status (current)'
-                                : 'Set status: $status',
-                          ),
-                        ),
-                      ),
-                      const PopupMenuDivider(),
-                      const PopupMenuItem(
-                        value: 'delete',
-                        child: Text('Delete vehicle'),
-                      ),
-                    ],
+                  const Padding(
+                    padding: EdgeInsets.only(top: 9, right: 4),
+                    child: Icon(
+                      Icons.chevron_right_rounded,
+                      size: 20,
+                      color: FleetColors.muted,
+                    ),
                   ),
                 ],
               ),
@@ -489,23 +461,6 @@ class _VehicleCard extends StatelessWidget {
                       .toList(),
                 ),
               ],
-              const SizedBox(height: 7),
-              const Divider(height: 1),
-              Row(
-                children: [
-                  TextButton.icon(
-                    onPressed: onOpen,
-                    icon: const Icon(Icons.visibility_outlined, size: 15),
-                    label: const Text('View'),
-                  ),
-                  const Spacer(),
-                  TextButton.icon(
-                    onPressed: onEdit,
-                    icon: const Icon(Icons.edit_outlined, size: 15),
-                    label: const Text('Edit'),
-                  ),
-                ],
-              ),
             ],
           ),
         ),
@@ -534,10 +489,12 @@ class _VehicleCard extends StatelessWidget {
 class _VehicleDetailSheet extends StatelessWidget {
   const _VehicleDetailSheet({
     required this.vehicle,
+    required this.canDelete,
     required this.hasActiveHire,
   });
 
   final Vehicle vehicle;
+  final bool canDelete;
   final bool hasActiveHire;
 
   @override
@@ -683,56 +640,57 @@ class _VehicleDetailSheet extends StatelessWidget {
                             ? FleetColors.white
                             : FleetColors.ink,
                       ),
-                      backgroundColor: FleetColors.white,
+                      backgroundColor: FleetColors.surface,
                       side: const BorderSide(color: FleetColors.warmGrey),
                     );
                   }).toList(),
                 ),
                 const SizedBox(height: 18),
-                Row(
-                  children: [
-                    Expanded(
-                      child: FilledButton.icon(
-                        onPressed: () => Navigator.pop(context, 'edit'),
-                        icon: const Icon(Icons.edit_outlined, size: 17),
-                        label: const Text('Edit vehicle'),
-                        style: FilledButton.styleFrom(
-                          backgroundColor: FleetColors.ink,
-                          foregroundColor: FleetColors.white,
-                          minimumSize: const Size(0, 46),
+                if (canDelete)
+                  Row(
+                    children: [
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: () => Navigator.pop(context, 'edit'),
+                          icon: const Icon(Icons.edit_outlined, size: 17),
+                          label: const Text('Edit vehicle'),
                         ),
                       ),
+                      const SizedBox(width: 8),
+                      OutlinedButton.icon(
+                        onPressed: () => Navigator.pop(context, 'delete'),
+                        icon: const Icon(
+                          Icons.delete_outline_rounded,
+                          size: 17,
+                          color: FleetColors.red,
+                        ),
+                        label: const Text(
+                          'Delete',
+                          style: TextStyle(color: FleetColors.red),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          side: const BorderSide(color: FleetColors.warmGrey),
+                        ),
+                      ),
+                    ],
+                  )
+                else ...[
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: () => Navigator.pop(context, 'edit'),
+                      icon: const Icon(Icons.edit_outlined, size: 17),
+                      label: const Text('Edit vehicle'),
                     ),
-                    const SizedBox(width: 8),
-                    OutlinedButton.icon(
-                      onPressed: () => Navigator.pop(context, 'delete'),
-                      icon: const Icon(
-                        Icons.delete_outline_rounded,
-                        size: 17,
-                        color: FleetColors.red,
-                      ),
-                      label: const Text(
-                        'Delete',
-                        style: TextStyle(color: FleetColors.red),
-                      ),
-                      style: OutlinedButton.styleFrom(
-                        minimumSize: const Size(0, 46),
-                        side: const BorderSide(color: FleetColors.warmGrey),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 9),
-                const Text(
-                  'Financial and hire history is protected: a vehicle with '
-                  'linked records cannot be deleted.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: FleetColors.muted,
-                    height: 1.4,
                   ),
-                ),
+                  const SizedBox(height: 9),
+                  const InfoBanner(
+                    icon: Icons.lock_outline_rounded,
+                    text:
+                        'Vehicles with linked hire or money records cannot be '
+                        'deleted. This role is a local preference, not sign-in.',
+                  ),
+                ],
               ],
             ),
           ),
@@ -752,8 +710,8 @@ class _DueDetail extends StatelessWidget {
     final tone = dueTone(value);
     final color = switch (tone) {
       DueTone.overdue => FleetColors.red,
-      DueTone.soon => FleetColors.red,
-      DueTone.valid => FleetColors.green,
+      DueTone.soon => FleetColors.ink,
+      DueTone.valid => FleetColors.success,
       DueTone.missing => FleetColors.muted,
     };
     return DetailRow(

@@ -1,4 +1,9 @@
-import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
+import {
+  createRemoteJWKSet,
+  customFetch,
+  jwtVerify,
+  type JWTPayload,
+} from "jose";
 import type { AuthConfig } from "../config.js";
 
 export interface VerifiedIdentity {
@@ -9,19 +14,15 @@ export interface TokenVerifier {
   verify(token: string): Promise<VerifiedIdentity>;
 }
 
-const ASYMMETRIC_ALGORITHMS = [
-  "RS256",
-  "RS384",
-  "RS512",
-  "PS256",
-  "PS384",
-  "PS512",
-  "ES256",
-  "ES384",
-  "EdDSA",
-] as const;
+// Neon Managed Better Auth signs its JWTs with Ed25519. Pinning the expected
+// algorithm prevents tokens from any other asymmetric signing family being
+// accepted if the verifier configuration is changed accidentally.
+const NEON_JWT_ALGORITHMS = ["EdDSA"] as const;
 
-export function createTokenVerifier(config: AuthConfig | null): TokenVerifier | null {
+export function createTokenVerifier(
+  config: AuthConfig | null,
+  jwksFetch: typeof fetch = fetch,
+): TokenVerifier | null {
   if (!config) {
     return null;
   }
@@ -30,6 +31,7 @@ export function createTokenVerifier(config: AuthConfig | null): TokenVerifier | 
     timeoutDuration: 5_000,
     cooldownDuration: 30_000,
     cacheMaxAge: 600_000,
+    [customFetch]: (url, options) => jwksFetch(url, options),
   });
 
   return {
@@ -37,7 +39,7 @@ export function createTokenVerifier(config: AuthConfig | null): TokenVerifier | 
       const { payload } = await jwtVerify(token, jwks, {
         issuer: config.issuer,
         audience: config.audience,
-        algorithms: [...ASYMMETRIC_ALGORITHMS],
+        algorithms: [...NEON_JWT_ALGORITHMS],
         clockTolerance: config.clockToleranceSeconds,
         requiredClaims: ["sub", "exp"],
       });

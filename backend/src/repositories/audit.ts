@@ -1,4 +1,4 @@
-import type { PoolClient } from "pg";
+import type { PoolClient } from "@neondatabase/serverless";
 
 export type AuditActorType = "user" | "platform_admin" | "system";
 

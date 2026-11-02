@@ -407,105 +407,85 @@ class _ReportsScreenState extends State<ReportsScreen> {
       builder: (context, constraints) {
         final wide = constraints.maxWidth >= 760;
         return ListView(
-          padding: EdgeInsets.fromLTRB(wide ? 30 : 18, 22, wide ? 30 : 18, 28),
+          padding: screenPadding(context),
           children: [
-            PageHeading(
-              eyebrow: 'Reporting',
+            const PageHeading(
               title: 'Reports',
-              description:
-                  'Date-filtered summaries from saved records. Income, '
-                  'remittances, and expenses are shown separately.',
-              action: FilledButton.icon(
-                onPressed: _exporting ? null : _export,
-                icon: _exporting
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: FleetColors.white,
-                        ),
-                      )
-                    : const Icon(Icons.download_rounded, size: 18),
-                label: Text(_exporting ? 'Exporting…' : 'CSV'),
-                style: FilledButton.styleFrom(
-                  backgroundColor: FleetColors.ink,
-                  foregroundColor: FleetColors.white,
-                ),
-              ),
+              subtitle: 'Summaries and CSV export for the selected dates',
             ),
             const SizedBox(height: 14),
             SectionCard(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const PanelHeading(
-                    title: 'Date range',
-                    trailing: 'TRANSACTION DATES',
+                  const PanelHeading(title: 'Date range'),
+                  const SizedBox(height: 10),
+                  FilterWrap(
+                    children:
+                        [
+                              'This month',
+                              'Last month',
+                              'Last 30 days',
+                              'This year',
+                            ]
+                            .map(
+                              (preset) => DateFilterChip(
+                                label: preset,
+                                selected: _preset == preset,
+                                onTap: () {
+                                  final range = _rangeFor(preset);
+                                  setState(() {
+                                    _preset = preset;
+                                    _from = range.$1;
+                                    _to = range.$2;
+                                    _error = null;
+                                  });
+                                },
+                              ),
+                            )
+                            .toList(),
                   ),
                   const SizedBox(height: 10),
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children:
-                          [
-                                'This month',
-                                'Last month',
-                                'Last 30 days',
-                                'This year',
-                              ]
-                              .map(
-                                (preset) => Padding(
-                                  padding: const EdgeInsets.only(right: 7),
-                                  child: DateFilterChip(
-                                    label: preset,
-                                    selected: _preset == preset,
-                                    onTap: () {
-                                      final range = _rangeFor(preset);
-                                      setState(() {
-                                        _preset = preset;
-                                        _from = range.$1;
-                                        _to = range.$2;
-                                        _error = null;
-                                      });
-                                    },
-                                  ),
-                                ),
-                              )
-                              .toList(),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: AppDateField(
-                          label: 'From',
-                          value: _from,
-                          onChanged: (value) {
-                            if (value == null) return;
-                            setState(() {
-                              _from = value;
-                              _preset = 'Custom';
-                            });
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 9),
-                      Expanded(
-                        child: AppDateField(
-                          label: 'To',
-                          value: _to,
-                          onChanged: (value) {
-                            if (value == null) return;
-                            setState(() {
-                              _to = value;
-                              _preset = 'Custom';
-                            });
-                          },
-                        ),
-                      ),
-                    ],
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      final fieldWidth = constraints.maxWidth >= 430
+                          ? (constraints.maxWidth - 9) / 2
+                          : constraints.maxWidth;
+                      return Wrap(
+                        spacing: 9,
+                        runSpacing: 9,
+                        children: [
+                          SizedBox(
+                            width: fieldWidth,
+                            child: AppDateField(
+                              label: 'From',
+                              value: _from,
+                              onChanged: (value) {
+                                if (value == null) return;
+                                setState(() {
+                                  _from = value;
+                                  _preset = 'Custom';
+                                });
+                              },
+                            ),
+                          ),
+                          SizedBox(
+                            width: fieldWidth,
+                            child: AppDateField(
+                              label: 'To',
+                              value: _to,
+                              onChanged: (value) {
+                                if (value == null) return;
+                                setState(() {
+                                  _to = value;
+                                  _preset = 'Custom';
+                                });
+                              },
+                            ),
+                          ),
+                        ],
+                      );
+                    },
                   ),
                   if (!_validRange) ...[
                     const SizedBox(height: 8),
@@ -519,14 +499,15 @@ class _ReportsScreenState extends State<ReportsScreen> {
                     const SizedBox(height: 8),
                     InlineAlert(message: _error!),
                   ],
-                  const SizedBox(height: 8),
-                  Text(
-                    'Showing records dated $_from to $_to. Hires use their start '
-                    'date; money and expenses use their transaction date.',
-                    style: const TextStyle(
-                      fontSize: 10,
-                      color: FleetColors.muted,
-                      height: 1.4,
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: _exporting ? null : _export,
+                      icon: const Icon(Icons.ios_share_rounded, size: 18),
+                      label: Text(
+                        _exporting ? 'Creating CSV…' : 'Create & share CSV',
+                      ),
                     ),
                   ),
                 ],
@@ -575,14 +556,6 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 ],
               ),
               const SizedBox(height: 11),
-              const InfoBanner(
-                icon: Icons.call_split_rounded,
-                text:
-                    'No profit figure is shown. Expenses, income, and driver '
-                    'remittances are distinct records and are not silently '
-                    'netted together.',
-              ),
-              const SizedBox(height: 13),
               if (wide)
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -634,51 +607,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
               ],
               const SizedBox(height: 12),
               _CurrentFleetSummary(snapshot: widget.snapshot),
-              const SizedBox(height: 12),
-              SectionCard(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const PanelHeading(
-                      title: 'Export saved records',
-                      trailing: 'CSV',
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Creates a CSV with the report summary, date-filtered '
-                      'expenses, income, remittances, and hires, plus the '
-                      'current vehicle and driver registers. Voided financial '
-                      'entries are included with a status so history is not '
-                      'lost. Your phone’s share sheet opens so you can save or '
-                      'send the file.',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: FleetColors.muted,
-                        height: 1.5,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    SizedBox(
-                      width: double.infinity,
-                      child: FilledButton.icon(
-                        onPressed: _exporting ? null : _export,
-                        icon: const Icon(Icons.ios_share_rounded, size: 18),
-                        label: Text(
-                          _exporting ? 'Creating CSV…' : 'Create & share CSV',
-                        ),
-                        style: FilledButton.styleFrom(
-                          backgroundColor: FleetColors.ink,
-                          foregroundColor: FleetColors.white,
-                          minimumSize: const Size(0, 46),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
             ],
-            const SizedBox(height: 9),
-            const LocalDataNotice(),
           ],
         );
       },
@@ -739,9 +668,9 @@ class _ReportCategorySummary extends StatelessWidget {
                             ? 0
                             : (entry.value / maxCategory).clamp(0, 1),
                         minHeight: 5,
-                        backgroundColor: FleetColors.canvas,
+                        backgroundColor: FleetColors.mist,
                         valueColor: const AlwaysStoppedAnimation(
-                          FleetColors.red,
+                          FleetColors.ink,
                         ),
                       ),
                     ),
@@ -819,7 +748,7 @@ class _ReportVehicleSummary extends StatelessWidget {
                             ? 0
                             : (entry.value / maxVehicle).clamp(0, 1),
                         minHeight: 5,
-                        backgroundColor: FleetColors.canvas,
+                        backgroundColor: FleetColors.mist,
                         valueColor: const AlwaysStoppedAnimation(
                           FleetColors.ink,
                         ),
@@ -889,7 +818,7 @@ class _RemittancePeriodSummary extends StatelessWidget {
         children: [
           const PanelHeading(
             title: 'Remittances by 10-day period',
-            trailing: 'PAYMENTS IN RANGE',
+            trailing: 'In range',
           ),
           const SizedBox(height: 10),
           if (entries.isEmpty)
@@ -970,7 +899,7 @@ class _CurrentFleetSummary extends StatelessWidget {
         children: [
           const PanelHeading(
             title: 'Current fleet snapshot',
-            trailing: 'NOT DATE-FILTERED',
+            trailing: 'All vehicles',
           ),
           const SizedBox(height: 10),
           Wrap(

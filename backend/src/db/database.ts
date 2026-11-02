@@ -1,4 +1,4 @@
-import type { Pool, PoolClient } from "pg";
+import type { Pool, PoolClient } from "@neondatabase/serverless";
 import { createPool } from "./pool.js";
 import { membershipConflict, permissionDenied } from "../domain/errors.js";
 import {
@@ -17,6 +17,7 @@ import {
   setFleetContext,
   setLocal,
   setPlatformContext,
+  setUserContext,
   withTransaction,
 } from "./context.js";
 
@@ -25,6 +26,7 @@ export interface Database {
   schemaReady(): Promise<boolean>;
   assertSafeRole(): Promise<void>;
   resolveSession(subject: string): Promise<Session | null>;
+  withUser<T>(session: Session, work: (client: PoolClient) => Promise<T>): Promise<T>;
   withFleet<T>(session: FleetSession, work: (client: PoolClient) => Promise<T>): Promise<T>;
   withPlatform<T>(session: Session, work: (client: PoolClient) => Promise<T>): Promise<T>;
   close(): Promise<void>;
@@ -198,6 +200,16 @@ export class PostgresDatabase implements Database {
   ): Promise<T> {
     return withTransaction(this.pool, async (client) => {
       await setFleetContext(client, session);
+      return work(client);
+    });
+  }
+
+  async withUser<T>(
+    session: Session,
+    work: (client: PoolClient) => Promise<T>,
+  ): Promise<T> {
+    return withTransaction(this.pool, async (client) => {
+      await setUserContext(client, session);
       return work(client);
     });
   }

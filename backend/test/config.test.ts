@@ -12,7 +12,6 @@ describe("loadConfig", () => {
     const config = loadConfig({ DATABASE_URL: databaseUrl });
     expect(config.auth).toBeNull();
     expect(config.database.expectedRole).toBe("app_rw");
-    expect(config.database.ssl).toBe(true);
   });
 
   it("rejects a partially configured identity provider", () => {

@@ -17,6 +17,7 @@ import { registerFinanceRoutes } from "./routes/finance.js";
 import { registerHealthRoutes } from "./routes/health.js";
 import { registerHireRoutes } from "./routes/hires.js";
 import { registerMeRoutes } from "./routes/me.js";
+import { registerMemberRoutes } from "./routes/members.js";
 import { registerPlatformRoutes } from "./routes/platform.js";
 import { registerVehicleRoutes } from "./routes/vehicles.js";
 
@@ -151,6 +152,7 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
 
   registerHealthRoutes(app, { config, database });
   registerMeRoutes(app);
+  registerMemberRoutes(app, { database });
   registerVehicleRoutes(app, { database });
   registerDriverRoutes(app, { database });
   registerHireRoutes(app, { database });
@@ -183,6 +185,16 @@ function mapError(error: unknown): AppError {
       case "23505":
         if (error.constraint === "vehicles_fleet_registration_active_idx") {
           return duplicateVehicle();
+        }
+        if (error.constraint === "fleet_invitations_fleet_email_pending_idx") {
+          return new AppError({
+            statusCode: 409,
+            code: "INVITATION_ALREADY_PENDING",
+            message: "That email already has an active invitation for this fleet.",
+            fieldErrors: {
+              email: "Revoke the current invitation or wait for it to expire.",
+            },
+          });
         }
         return new AppError({
           statusCode: 409,

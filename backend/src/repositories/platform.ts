@@ -1,4 +1,4 @@
-import type { PoolClient } from "pg";
+import type { PoolClient } from "@neondatabase/serverless";
 import type { ListResult } from "./vehicles.js";
 
 export interface PlatformFleetRecord {

@@ -27,7 +27,8 @@ open work.
 - Row-level security with `FORCE ROW LEVEL SECURITY`, per-transaction tenant context,
   and a least-privilege `app_rw` database role.
 - Versioned, checksummed migrations and a guarded migration runner.
-- Dockerfile and a local Compose stack for PostgreSQL, migrations, and the API.
+- Neon WebSocket transport for the API pool and migration runner.
+- Dockerfile for deployments that connect to Neon.
 
 Not included in this phase: fuel tracking, dispatch, odometer/mileage, GPS, customer or
 booking records, attachments, notifications, settlement calculations, a web UI,
@@ -37,75 +38,71 @@ IndexedDB or SQLite.
 ## Requirements
 
 - Node.js 22 or newer (Docker uses Node 24).
-- PostgreSQL 15 or newer (local smoke testing used PostgreSQL 18; Compose uses 17).
-- Neon PostgreSQL for shared environments. Do not use the production branch for
-  development or migration testing.
+- A Neon PostgreSQL project. The API pool and the migration runner use
+  `@neondatabase/serverless` over secure WebSockets (`wss://`, port 443), so a
+  plain PostgreSQL server reachable only over TCP is not supported by this
+  transport.
+- Do not use the production branch for development or migration testing.
 - Docker is optional. It was not available in the environment where this foundation
   was prepared, so the image build has not been executed here.
 
 ## Quick start
 
-### Option A: local PostgreSQL without Docker
+### 1. Configure the development branch
 
 ```sh
 cd backend
 npm install
-cp .env.example .env
+test -f .env || cp .env.example .env
 ```
 
-Edit `backend/.env` with local values. For example:
+Fill `backend/.env` with the development branch values. Never overwrite an existing
+`.env`; keep both connection strings in that file only:
 
 ```dotenv
 NODE_ENV=development
-DATABASE_URL=postgresql://app_rw:local_password@127.0.0.1:5432/fleet_dev
-DATABASE_SSL=false
+# Non-owner API role, preferably the Neon pooled host.
+DATABASE_URL=postgresql://app_rw:<password>@<endpoint>-pooler.<region>.aws.neon.tech/<database>?sslmode=require
 DATABASE_EXPECTED_ROLE=app_rw
-MIGRATION_DATABASE_URL=postgresql://your_owner@127.0.0.1:5432/fleet_dev
+# Migration-only owner/direct host for the development branch.
+MIGRATION_DATABASE_URL=postgresql://<owner>:<password>@<endpoint>.<region>.aws.neon.tech/<database>?sslmode=require
 AUTH_ISSUER=
 AUTH_AUDIENCE=
 AUTH_JWKS_URL=
 ```
 
-Create the database and a login-capable `app_rw` role before running migrations. The
-migration creates `app_rw` as `NOLOGIN` if it does not exist, so an operator must grant
-login for the API connection:
+Neither URL opens a TCP connection. The serverless driver uses the host and
+database from the URL, then opens `wss://<host>/v2` on port 443. No extra
+environment variable is needed for the WebSocket transport.
 
-```sql
-CREATE ROLE app_rw LOGIN NOINHERIT PASSWORD '<local password>';
-```
-
-Then:
+### 2. Check and apply migrations
 
 ```sh
 npm run migrate -- --status
-npm run migrate:apply -- --confirm-target=127.0.0.1:5432/fleet_dev
-npm run dev
+npm run migrate:apply -- --confirm-target=<printed host>:<port>/<database>
 ```
 
-`npm run migrate` only prints status. `npm run migrate:apply` requires
-`--confirm-target` to match the connected host and database exactly.
+`npm run migrate` only prints status and never changes the schema. It is safe to
+run against a branch that has no migration ledger yet. `npm run migrate:apply`
+requires `--confirm-target` to match the connected host and database exactly.
+
+### 3. Run the API
+
+```sh
+npm run dev
+```
 
 The API starts even when auth is unconfigured so liveness can be checked, but
 `/readyz` and all `/v1` routes fail closed until `AUTH_*` is set.
 
-### Option B: local Compose stack
+### Local Compose stack
 
-```sh
-cd backend
-docker compose up --build
-```
+`compose.yaml` provides only a plain local PostgreSQL service for manual SQL
+experiments. The API and migration runner need a Neon endpoint and remain separate
+Node commands.
 
-Compose starts PostgreSQL, applies migrations in a one-shot service, then starts the
-API. The credentials in `compose.yaml` and `scripts/init-local-db.sql` are local-only
-and must never be reused for Neon or a shared environment.
-
-Set `AUTH_ISSUER`, `AUTH_AUDIENCE`, and `AUTH_JWKS_URL` in the shell before starting
-Compose to enable protected routes.
-
-```sh
-curl http://127.0.0.1:3000/healthz
-curl http://127.0.0.1:3000/readyz
-```
+Set `LOCAL_POSTGRES_PASSWORD` in your local shell before starting the Compose database.
+The Compose file has no password default and does not start migrations automatically.
 
 ### Docker image
 
@@ -130,8 +127,7 @@ docker run --rm --env-file .env ip-motors-fleet-api \
 | `NODE_ENV` | `development`, `test`, or `production`. |
 | `HOST`, `PORT` | Listen address and port. Defaults: `0.0.0.0`, `3000`. |
 | `LOG_LEVEL` | Pino level. Default `info`. |
-| `DATABASE_URL` | API connection using the non-owner `app_rw` role. Prefer the Neon pooled URL. |
-| `DATABASE_SSL` | `true` for Neon, `false` for a local non-TLS PostgreSQL. |
+| `DATABASE_URL` | API connection using the non-owner `app_rw` role. Prefer the Neon pooled host. |
 | `DATABASE_POOL_MAX` | Pool size, 1-50. Default 10. |
 | `DATABASE_EXPECTED_ROLE` | Role the API must connect as. Default and supported value: `app_rw`; the migrations grant to this role. Startup fails if it does not match or the role is a superuser or has `BYPASSRLS`, `CREATEDB`, `CREATEROLE`, or `INHERIT`. |
 | `MIGRATION_DATABASE_URL` | Migration-only owner/direct connection. Use a separate Neon development branch. Never used by the API server. |
@@ -141,10 +137,50 @@ docker run --rm --env-file .env ip-motors-fleet-api \
 | `AUTH_CLOCK_TOLERANCE_SECONDS` | Allowed clock skew, 0-120. Default 30. |
 | `TRUST_PROXY` | Optional Fastify trust-proxy setting for a known reverse proxy. |
 
+Both database URLs must point at Neon endpoints. The driver reads the host, database,
+user, and password from the URL, then connects over `wss://` on port 443; the
+Postgres port in the URL is not used for this transport, so outbound port 5432 does not
+need to be open. `sslmode=require` is accepted but TLS is provided by the secure
+WebSocket itself. `DATABASE_SSL` is no longer read. Keep the real URLs in
+`backend/.env` only and never log them.
+
+`MIGRATION_DATABASE_URL` must be the **direct (unpooled)** development endpoint.
+Session-level advisory locks and `SET` statements need a real session; a PgBouncer
+transaction-pooled URL can route statements to different backends. `DATABASE_URL` may
+use the pooled endpoint because the API sets tenant and role context inside each
+transaction.
+
 Never commit `.env` or a real connection string. `.env.example` contains placeholders
 only.
 
 ## Authentication and authorization
+
+### Neon Managed Better Auth (development)
+
+The Flutter client uses the Neon Managed Better Auth REST API on the **development**
+branch for email/password sign-in, account creation, session restore, and password
+recovery. Neon issues a short-lived EdDSA JWT through its supported `/auth/token`
+endpoint. The client retains only the opaque session cookie in platform secure
+storage; it requests a fresh JWT when needed. Fastify verifies the JWT signature
+against the branch JWKS endpoint and checks issuer, audience, expiry, and `sub`.
+The API then resolves `sub` through `users.idp_subject` and reads the active
+membership from the application schema. Neon Auth identity alone grants no fleet
+access. Public signup never assigns fleet roles or platform administrator status.
+
+Set the backend's `AUTH_ISSUER`, `AUTH_AUDIENCE`, and `AUTH_JWKS_URL` from the
+development branch's Managed Better Auth configuration. Neon documents the JWT
+issuer and audience as the auth service origin, and the JWKS URL as the auth base
+URL plus `/.well-known/jwks.json`. Keep these values in the server environment;
+do not place database URLs or server configuration in the Flutter build. The
+mobile build receives only `NEON_AUTH_URL` and `FLEET_API_URL` via Dart defines.
+
+In Neon Console, select only the `development` branch, enable email/password
+sign-up and verification codes, configure email delivery, and confirm the
+Managed Better Auth JWT and Email OTP endpoints are available. Do not change
+production settings. The database must already
+contain an application `users` row with the exact Neon Auth subject in
+`idp_subject`, provisioned through the authorized fleet owner/admin workflow,
+before API access is granted.
 
 - Only `Authorization: Bearer <JWT>` is accepted.
 - The verifier accepts asymmetric algorithms (`RS256/384/512`, `PS256/384/512`,
@@ -249,7 +285,27 @@ npm run migrate:apply -- --confirm-target=<host>:<port>/<database>
 
 The runner reads only `MIGRATION_DATABASE_URL`. It never uses the API's `DATABASE_URL`.
 `--apply` requires an exact `--confirm-target` match so a wrong database is not
-migrated by accident.
+migrated by accident. Use the branch's direct (unpooled) endpoint: transaction-pooled
+connections cannot preserve a session-level advisory lock.
+
+Both the runner and the API use `@neondatabase/serverless` over a secure WebSocket:
+
+- The runner opens one long-lived WebSocket `Client`. That session is what makes
+  `pg_advisory_lock`, `BEGIN`/`COMMIT`, and per-migration checksums safe. It never uses
+  Neon's one-shot HTTP SQL function for migrations.
+- Session settings (`statement_timeout`, `Time Zone`) are applied with `SET` after
+  connecting, because the WebSocket proxy does not take node-postgres's `options`
+  startup parameter.
+- `--status` is read-only. It checks whether `schema_migrations` exists and reports
+  every migration as pending if the ledger has not been created; only `--apply`
+  creates the ledger and runs migration SQL.
+- Errors are printed without the connection URL or password. The target line shows
+  only host, port, and database so an operator can confirm it before `--apply`.
+
+If the handshake fails with `ETIMEDOUT`, the network is likely blocking the Neon
+endpoint (IP allowlist, egress firewall, or a proxy that does not forward WebSocket
+upgrades). A working `https://<endpoint>/v2` response does not by itself prove that
+WebSocket upgrades are allowed.
 
 ## Safe Neon development path
 
@@ -260,7 +316,8 @@ development branch.
    and create or select a dedicated **development** branch. Confirm the branch before
    copying any connection string.
 2. Put the development branch's owner/direct connection string in
-   `MIGRATION_DATABASE_URL` in a local, ignored `.env`. Set `DATABASE_SSL=true`.
+   `MIGRATION_DATABASE_URL` in a local, ignored `backend/.env`. Keep
+   `sslmode=require`; the transport itself is `wss://` on port 443.
 3. Run `npm run migrate -- --status` and confirm the printed target is the development
    branch. Then run
    `npm run migrate:apply -- --confirm-target=<printed host/database>`.
@@ -274,9 +331,9 @@ development branch.
    provider is selected. Until then, `/readyz` remains `503` and protected routes fail
    closed.
 
-No migration has been run against Neon from this workspace. If the Neon CLI is not
-authenticated or a development branch is not available, leave the migrations unrun
-and complete steps 1-3 later.
+If WebSocket egress is unavailable, leave the migrations unrun and fix the network
+path first. Do not fall back to a direct TCP client or Neon's HTTP SQL interface for
+migrations.
 
 Initial user/fleet provisioning and invitation delivery are not implemented. Do not
 copy IndexedDB or SQLite records into the shared database yet; that migration needs the
@@ -295,10 +352,21 @@ npm run build
 The migration SQL and RLS policies were also exercised against a throwaway local
 PostgreSQL 18 cluster, including cross-fleet isolation, Fleet Member delete denial,
 Finance Manager context access, vehicle soft delete/restore, finance voiding,
-append-only audit behavior, and platform cross-fleet reads. No test connected to Neon.
+append-only audit behavior, and platform cross-fleet reads. That history predates
+the WebSocket transport and used a plain TCP client.
 
-Docker was not installed in the preparation environment, so the image build and Compose
-stack have not been executed here.
+The WebSocket transport has been exercised against the Neon development branch with
+`npm run migrate -- --status`: the connection, advisory lock, ledger probe, and
+checksum comparison all run over `wss://`. The three migrations were then applied
+through the same WebSocket migration runner. The ledger checksums match the migration
+files, and catalog checks confirm `app_rw` is `NOLOGIN`, `NOINHERIT`, `NOSUPERUSER`,
+`NOCREATEDB`, `NOCREATEROLE`, `NOREPLICATION`, and `NOBYPASSRLS`; it owns no tables,
+has no `DELETE` or `schema_migrations` access, and every migrated table has forced RLS.
+No login or password was configured for `app_rw` by this work.
+
+Docker was not installed in the preparation environment, so the image build has not
+been executed here.
+
 
 ## Open decisions / next work
 

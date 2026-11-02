@@ -1,8 +1,39 @@
 # IP Motors Fleet — Flutter app
 
-The mobile-first Flutter client for IP Motors. It mirrors the React PWA's local-first
-model: all records live in a SQLite database on the device, and there is no sign-in,
-cloud sync, or shared account in this build.
+The mobile-first Flutter client for IP Motors. Fleet records remain available in
+the local SQLite database; Neon Auth provides identity for requests to the shared
+Fastify API.
+
+## Secure development build
+
+Build against the Neon **development** branch Auth endpoint and shared Fastify
+API using Dart defines (values are intentionally not committed):
+
+```sh
+flutter run \
+  --dart-define=AUTH_GATEWAY_URL=<https-gateway-origin> \
+  --dart-define=MOBILE_REDIRECT_URI=fleetops://auth/callback \
+  --dart-define=FLEET_API_URL=<development-fastify-api-url>
+```
+
+The Flutter client opens the gateway in the system browser. Neon session cookies
+stay in the gateway; Flutter stores only a rotating refresh token in platform
+secure storage and keeps the short-lived API token in memory. The API resolves
+application users and active memberships itself. Public signup does not grant a
+fleet role. Without gateway/API defines, the app keeps its local-first workflow.
+
+Do not pass `NEON_AUTH_URL` to a staging or release build. Direct cookie replay
+from Flutter is an unsupported development investigation and is disabled by
+default.
+
+For mobile onboarding, enable email/password sign-up, verification, Google (if
+wanted), and email delivery in Neon development. The gateway hosts the branded
+web auth form and returns to Flutter through the `fleetops` callback scheme.
+
+Configure Fastify separately with `AUTH_ISSUER`, `AUTH_AUDIENCE`, and
+`AUTH_JWKS_URL` pointing to the gateway's HTTPS origin and JWKS route once a
+durable gateway deployment exists. Keep `DATABASE_URL` and gateway signing keys
+server-side. Never use production branch values in a development build.
 
 ## Requirements
 
@@ -21,8 +52,8 @@ flutter build apk --release # Android release build
 ```
 
 The app opens on the dashboard. The bottom bar covers **Dashboard**, **Vehicles**,
-**Maintenance**, **Finance**, and **More**; the **More** sheet links to Drivers,
-Hires, Reports, and Settings & backup.
+**Service** (maintenance and expenses), **Finance**, and **More**; the **More**
+menu links to Drivers, Hires, Reports, and Settings & backup.
 
 ## Data and backup
 

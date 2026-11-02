@@ -4,6 +4,7 @@ import '../models/expense.dart';
 import '../models/fleet_snapshot.dart';
 import '../ui/alerts.dart';
 import '../ui/common.dart';
+import '../ui/fleet_chart.dart';
 import '../ui/fleet_theme.dart';
 import '../utils/formatting.dart';
 
@@ -33,10 +34,10 @@ class DashboardScreen extends StatelessWidget {
     final maintenance = snapshot.vehicles
         .where((v) => v.status == 'Maintenance')
         .length;
+    final unavailable = snapshot.vehicles
+        .where((v) => v.status == 'Unavailable')
+        .length;
     final alerts = buildFleetAlerts(snapshot);
-    final overdue = alerts.where((alert) => alert.isOverdue).length;
-    final dueSoon = alerts.length - overdue;
-    final missingDocs = countMissingDocuments(snapshot);
     final today = todayIso();
     final now = DateTime.now();
 
@@ -44,13 +45,6 @@ class DashboardScreen extends StatelessWidget {
     final monthExpenses = activeExpenses
         .where((expense) => isSameMonth(expense.entryDate, now))
         .fold<double>(0, (sum, expense) => sum + expense.amount);
-    final monthExpenseCount = activeExpenses
-        .where((expense) => isSameMonth(expense.entryDate, now))
-        .length;
-    final allExpenses = activeExpenses.fold<double>(
-      0,
-      (sum, expense) => sum + expense.amount,
-    );
 
     final activeIncome = snapshot.income.where((entry) => !entry.isVoided);
     final activeRemittances = snapshot.remittances.where(
@@ -63,15 +57,10 @@ class DashboardScreen extends StatelessWidget {
         .where((entry) => entry.entryDate == today)
         .fold<double>(0, (sum, entry) => sum + entry.amount);
 
-    final categoryTotals = <String, double>{};
-    for (final expense in activeExpenses) {
-      categoryTotals[expense.category] =
-          (categoryTotals[expense.category] ?? 0) + expense.amount;
-    }
-    final categories = categoryTotals.entries.toList()
-      ..sort((a, b) => b.value.compareTo(a.value));
-    final maxCategory = categories.isEmpty ? 1.0 : categories.first.value;
-    final activities = _buildActivity(snapshot).take(7).toList();
+    final activities = _buildActivity(snapshot).take(6).toList();
+    final totalVehicles = snapshot.vehicles.length;
+    final notAvailable = maintenance + unavailable;
+    final hasRecords = !snapshot.isEmpty;
 
     return RefreshIndicator(
       color: FleetColors.ink,
@@ -80,72 +69,55 @@ class DashboardScreen extends StatelessWidget {
         builder: (context, constraints) {
           final wide = constraints.maxWidth >= 760;
           return ListView(
-            padding: EdgeInsets.fromLTRB(
-              wide ? 30 : 18,
-              24,
-              wide ? 30 : 18,
-              28,
-            ),
+            padding: screenPadding(context),
             children: [
               PageHeading(
-                eyebrow: 'Fleet overview',
-                title: 'Fleet dashboard',
-                description:
-                    'Real counts from the records saved on this device.',
-                action: FilledButton.icon(
-                  onPressed: () => onNavigate('Vehicles'),
-                  icon: const Icon(Icons.add_rounded, size: 18),
-                  label: const Text('Vehicle'),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: FleetColors.ink,
-                    foregroundColor: FleetColors.white,
-                  ),
-                ),
+                title: 'Dashboard',
+                subtitle: hasRecords
+                    ? '${snapshot.drivers.length} '
+                          '${snapshot.drivers.length == 1 ? 'driver' : 'drivers'}'
+                          ' · ${snapshot.activeHires} active '
+                          '${snapshot.activeHires == 1 ? 'hire' : 'hires'}'
+                    : 'Your fleet at a glance',
               ),
-              const SizedBox(height: 18),
-              GridView.count(
-                crossAxisCount: wide ? 4 : 2,
-                crossAxisSpacing: 10,
-                mainAxisSpacing: 10,
-                childAspectRatio: wide ? 1.45 : 1.2,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                children: [
-                  MetricTile(
-                    label: 'Total vehicles',
-                    value: isLoading ? '—' : '${snapshot.vehicles.length}',
-                    helper: '${snapshot.drivers.length} driver records',
-                    icon: Icons.directions_car_outlined,
-                    dark: true,
-                  ),
-                  MetricTile(
-                    label: 'Available',
-                    value: isLoading ? '—' : '$available',
-                    helper: '$onHire on hire · $maintenance in maintenance',
-                    icon: Icons.check_circle_outline_rounded,
-                    success: available > 0,
-                  ),
-                  MetricTile(
-                    label: 'Document alerts',
-                    value: isLoading ? '—' : '${alerts.length}',
-                    helper: overdue > 0
-                        ? '$overdue overdue · $dueSoon due soon'
-                        : '$dueSoon due within 30 days',
-                    icon: Icons.notifications_active_outlined,
-                    alert: overdue > 0,
-                  ),
-                  MetricTile(
-                    label: 'Costs this month',
-                    value: isLoading ? '—' : formatMoney(monthExpenses),
-                    helper:
-                        '$monthExpenseCount entries · '
-                        '${formatMoney(allExpenses)} all time',
-                    icon: Icons.build_outlined,
-                  ),
+              const SizedBox(height: 14),
+              SummaryHero(
+                eyebrow: 'Fleet',
+                value: isLoading ? '—' : '$totalVehicles',
+                label: 'Vehicles',
+                chart: isLoading
+                    ? null
+                    : FleetMixChart(
+                        segments: [
+                          FleetChartSegment(
+                            label: 'Available',
+                            value: available,
+                            color: FleetColors.silver,
+                          ),
+                          FleetChartSegment(
+                            label: 'On hire',
+                            value: onHire,
+                            color: FleetColors.white,
+                          ),
+                          FleetChartSegment(
+                            label: 'Unavailable',
+                            value: notAvailable,
+                            color: FleetColors.steel,
+                          ),
+                        ],
+                        centerValue: totalVehicles == 0
+                            ? '0'
+                            : '${((available / totalVehicles) * 100).round()}%',
+                        centerLabel: totalVehicles == 0
+                            ? 'VEHICLES'
+                            : 'AVAILABLE',
+                      ),
+                stats: [
+                  HeroStat('Available', isLoading ? '—' : '$available'),
+                  HeroStat('On hire', isLoading ? '—' : '$onHire'),
+                  HeroStat('Unavailable', isLoading ? '—' : '$notAvailable'),
                 ],
               ),
-              const SizedBox(height: 11),
-              const LocalDataNotice(),
               if (isLoading) ...[
                 const SizedBox(height: 10),
                 const LinearProgressIndicator(
@@ -153,80 +125,57 @@ class DashboardScreen extends StatelessWidget {
                   backgroundColor: FleetColors.warmGrey,
                 ),
               ],
-              const SizedBox(height: 18),
+              const SizedBox(height: 12),
               _QuickActions(onNavigate: onNavigate),
-              const SizedBox(height: 16),
-              if (wide)
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      flex: 3,
-                      child: _AttentionPanel(
-                        alerts: alerts,
-                        missingDocs: missingDocs,
-                        onNavigate: onNavigate,
-                      ),
-                    ),
-                    const SizedBox(width: 13),
-                    Expanded(
-                      flex: 2,
-                      child: _FinanceSnapshot(
-                        income: todayIncome,
-                        remittances: todayRemittances,
-                        monthExpenses: monthExpenses,
-                        onNavigate: onNavigate,
-                      ),
-                    ),
-                  ],
-                )
-              else ...[
-                _AttentionPanel(
-                  alerts: alerts,
-                  missingDocs: missingDocs,
-                  onNavigate: onNavigate,
+              if (!hasRecords && !isLoading) ...[
+                const SizedBox(height: 14),
+                SectionCard(
+                  child: EmptyState(
+                    icon: Icons.space_dashboard_outlined,
+                    title: 'Add your first vehicle',
+                    body:
+                        'Vehicle records power every total, alert, and report in '
+                        'this app.',
+                    actionLabel: 'Add vehicle',
+                    onAction: () => onNavigate('Vehicles'),
+                  ),
                 ),
-                const SizedBox(height: 13),
-                _FinanceSnapshot(
-                  income: todayIncome,
-                  remittances: todayRemittances,
-                  monthExpenses: monthExpenses,
-                  onNavigate: onNavigate,
-                ),
-              ],
-              const SizedBox(height: 13),
-              if (wide)
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      flex: 3,
-                      child: _CostSummary(
-                        monthExpenses: monthExpenses,
-                        allExpenses: allExpenses,
-                        count: activeExpenses.length,
-                        categories: categories,
-                        maxCategory: maxCategory,
-                        onNavigate: onNavigate,
+              ] else ...[
+                const SizedBox(height: 14),
+                if (wide)
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        flex: 3,
+                        child: _AttentionPanel(
+                          alerts: alerts,
+                          onNavigate: onNavigate,
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 13),
-                    Expanded(
-                      flex: 2,
-                      child: _RecentActivity(items: activities),
-                    ),
-                  ],
-                )
-              else ...[
-                _CostSummary(
-                  monthExpenses: monthExpenses,
-                  allExpenses: allExpenses,
-                  count: activeExpenses.length,
-                  categories: categories,
-                  maxCategory: maxCategory,
-                  onNavigate: onNavigate,
-                ),
-                const SizedBox(height: 13),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        flex: 2,
+                        child: _FinanceSnapshot(
+                          income: todayIncome,
+                          remittances: todayRemittances,
+                          monthExpenses: monthExpenses,
+                          onNavigate: onNavigate,
+                        ),
+                      ),
+                    ],
+                  )
+                else ...[
+                  _FinanceSnapshot(
+                    income: todayIncome,
+                    remittances: todayRemittances,
+                    monthExpenses: monthExpenses,
+                    onNavigate: onNavigate,
+                  ),
+                  const SizedBox(height: 12),
+                  _AttentionPanel(alerts: alerts, onNavigate: onNavigate),
+                ],
+                const SizedBox(height: 12),
                 _RecentActivity(items: activities),
               ],
             ],
@@ -243,7 +192,7 @@ List<_Activity> _buildActivity(FleetSnapshot snapshot) {
     items.add(
       _Activity(
         at: vehicle.updatedAt ?? vehicle.createdAt,
-        title: 'Vehicle record saved',
+        title: 'Vehicle saved',
         subtitle:
             '${vehicle.make} ${vehicle.model} · '
             '${vehicle.registrationNumber}',
@@ -256,7 +205,7 @@ List<_Activity> _buildActivity(FleetSnapshot snapshot) {
     items.add(
       _Activity(
         at: driver.updatedAt ?? driver.createdAt,
-        title: 'Driver record saved',
+        title: 'Driver saved',
         subtitle: driver.name,
         icon: Icons.people_outline_rounded,
         page: 'Drivers',
@@ -269,7 +218,7 @@ List<_Activity> _buildActivity(FleetSnapshot snapshot) {
         at: expense.createdAt,
         title: expense.isVoided
             ? 'Expense voided · ${expense.category}'
-            : 'Expense recorded · ${expense.category}',
+            : 'Expense · ${expense.category}',
         subtitle: '${expense.description} · ${formatMoney(expense.amount)}',
         icon: Icons.build_outlined,
         page: 'Maintenance',
@@ -283,8 +232,7 @@ List<_Activity> _buildActivity(FleetSnapshot snapshot) {
         title: 'Hire ${hire.status.toLowerCase()}',
         subtitle:
             '${hire.vehicleName ?? 'Vehicle'} · '
-            '${hire.driverName ?? 'No driver'} · '
-            '${formatDate(hire.startDate)}',
+            '${hire.driverName ?? 'No driver'}',
         icon: Icons.key_outlined,
         page: 'Hires',
       ),
@@ -307,7 +255,7 @@ List<_Activity> _buildActivity(FleetSnapshot snapshot) {
         at: remittance.createdAt,
         title: remittance.isVoided
             ? 'Remittance voided'
-            : 'Driver remittance received',
+            : 'Remittance received',
         subtitle:
             '${remittance.driverName ?? 'Driver'} · '
             '${formatMoney(remittance.amount)}',
@@ -345,185 +293,187 @@ class _Activity {
 
 class _QuickActions extends StatelessWidget {
   const _QuickActions({required this.onNavigate});
+
   final ValueChanged<String> onNavigate;
 
   @override
   Widget build(BuildContext context) {
     final actions = [
-      ('Add vehicle', Icons.directions_car_outlined, 'Vehicles'),
-      ('Add driver', Icons.person_add_alt_1_rounded, 'Drivers'),
-      ('Add expense', Icons.receipt_long_outlined, 'Maintenance'),
-      ('Record finance', Icons.add_card_rounded, 'Finance'),
-      ('Create report', Icons.insert_chart_outlined_rounded, 'Reports'),
+      ('Drivers', Icons.people_outline_rounded, 'Drivers'),
+      ('Service', Icons.build_outlined, 'Maintenance'),
+      ('Finance', Icons.account_balance_wallet_outlined, 'Finance'),
+      ('Reports', Icons.insert_chart_outlined_rounded, 'Reports'),
     ];
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Eyebrow('Quick actions'),
-        const SizedBox(height: 9),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: actions
-              .map(
-                (action) => OutlinedButton.icon(
-                  onPressed: () => onNavigate(action.$3),
-                  icon: Icon(action.$2, size: 16),
-                  label: Text(action.$1),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: action.$1 == 'Add vehicle'
-                        ? FleetColors.white
-                        : FleetColors.ink,
-                    backgroundColor: action.$1 == 'Add vehicle'
-                        ? FleetColors.ink
-                        : FleetColors.white,
-                    side: BorderSide(
-                      color: action.$1 == 'Add vehicle'
-                          ? FleetColors.ink
-                          : FleetColors.warmGrey,
-                    ),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 12,
-                    ),
-                    textStyle: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 11.5,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
+
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
+      decoration: BoxDecoration(
+        color: FleetColors.surface,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: FleetColors.warmGrey, width: .7),
+      ),
+      child: Row(
+        children: [
+          for (final action in actions)
+            Expanded(
+              child: InkWell(
+                onTap: () => onNavigate(action.$3),
+                borderRadius: BorderRadius.circular(14),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(action.$2, size: 19, color: FleetColors.ink),
+                      const SizedBox(height: 6),
+                      Text(
+                        action.$1,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: FleetColors.ink,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              )
-              .toList(),
-        ),
-      ],
+              ),
+            ),
+        ],
+      ),
     );
   }
 }
 
 class _AttentionPanel extends StatelessWidget {
-  const _AttentionPanel({
-    required this.alerts,
-    required this.missingDocs,
-    required this.onNavigate,
-  });
+  const _AttentionPanel({required this.alerts, required this.onNavigate});
 
   final List<FleetAlert> alerts;
-  final int missingDocs;
   final ValueChanged<String> onNavigate;
 
   @override
   Widget build(BuildContext context) {
     return SectionCard(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           PanelHeading(
             title: 'Needs attention',
-            trailing: alerts.isEmpty ? 'CLEAR' : '${alerts.length} ALERTS',
+            trailing: alerts.isEmpty ? 'Clear' : '${alerts.length}',
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 6),
           if (alerts.isEmpty)
-            EmptyState(
-              icon: Icons.verified_outlined,
-              title: 'No dated alerts',
-              body: missingDocs > 0
-                  ? '$missingDocs vehicle document date${missingDocs == 1 ? '' : 's'} '
-                        'are not tracked yet. Add insurance, road tax, and '
-                        'roadworthy dates to monitor them.'
-                  : 'Insurance, road tax, roadworthy, service, and licence '
-                        'dates are not due within 30 days.',
-              actionLabel: missingDocs > 0 ? 'Open vehicles' : null,
-              onAction: missingDocs > 0 ? () => onNavigate('Vehicles') : null,
-            )
-          else ...[
-            ...alerts
-                .take(5)
-                .map(
-                  (alert) => Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: InkWell(
-                      onTap: () => onNavigate(
-                        alert.kind == FleetAlertKind.licence
-                            ? 'Drivers'
-                            : 'Vehicles',
+            const Padding(
+              padding: EdgeInsets.only(bottom: 8),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.verified_outlined,
+                    size: 18,
+                    color: FleetColors.muted,
+                  ),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'No documents due in the next 30 days.',
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        color: FleetColors.muted,
+                        height: 1.4,
                       ),
-                      borderRadius: BorderRadius.circular(10),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 4),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Container(
-                              width: 30,
-                              height: 30,
-                              decoration: BoxDecoration(
-                                color: alert.isOverdue
-                                    ? FleetColors.red.withValues(alpha: .10)
-                                    : FleetColors.canvas,
-                                borderRadius: BorderRadius.circular(9),
-                              ),
-                              child: Icon(
-                                alert.isOverdue
-                                    ? Icons.error_outline_rounded
-                                    : Icons.schedule_rounded,
-                                size: 16,
-                                color: alert.isOverdue
-                                    ? FleetColors.red
-                                    : FleetColors.ink,
-                              ),
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else
+            ...alerts
+                .take(4)
+                .map(
+                  (alert) => InkWell(
+                    onTap: () => onNavigate(
+                      alert.kind == FleetAlertKind.licence
+                          ? 'Drivers'
+                          : 'Vehicles',
+                    ),
+                    borderRadius: BorderRadius.circular(10),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 28,
+                            height: 28,
+                            decoration: BoxDecoration(
+                              color: alert.isOverdue
+                                  ? FleetColors.red.withValues(alpha: .09)
+                                  : FleetColors.mist,
+                              borderRadius: BorderRadius.circular(9),
                             ),
-                            const SizedBox(width: 9),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    '${alert.title} · ${alert.subject}',
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      fontSize: 11.5,
-                                      fontWeight: FontWeight.w700,
-                                      color: FleetColors.ink,
-                                    ),
+                            child: Icon(
+                              alert.isOverdue
+                                  ? Icons.error_outline_rounded
+                                  : Icons.schedule_rounded,
+                              size: 15,
+                              color: alert.isOverdue
+                                  ? FleetColors.red
+                                  : FleetColors.ink,
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '${alert.title} · ${alert.subject}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    color: FleetColors.ink,
                                   ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    '${formatDate(alert.date)} · '
-                                    '${dueLabel(alert.date)}',
-                                    style: TextStyle(
-                                      fontSize: 10.5,
-                                      color: alert.isOverdue
-                                          ? FleetColors.red
-                                          : FleetColors.muted,
-                                    ),
+                                ),
+                                const SizedBox(height: 1),
+                                Text(
+                                  dueLabel(alert.date),
+                                  style: TextStyle(
+                                    fontSize: 10.5,
+                                    color: alert.isOverdue
+                                        ? FleetColors.red
+                                        : FleetColors.muted,
                                   ),
-                                ],
-                              ),
+                                ),
+                              ],
                             ),
-                            const Icon(
-                              Icons.chevron_right_rounded,
-                              size: 17,
-                              color: FleetColors.muted,
-                            ),
-                          ],
-                        ),
+                          ),
+                          const Icon(
+                            Icons.chevron_right_rounded,
+                            size: 17,
+                            color: FleetColors.faint,
+                          ),
+                        ],
                       ),
                     ),
                   ),
                 ),
-            if (alerts.length > 5)
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton(
-                  onPressed: () => onNavigate('Vehicles'),
-                  child: Text('+${alerts.length - 5} more'),
+          if (alerts.length > 4)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: TextButton(
+                onPressed: () => onNavigate('Vehicles'),
+                style: TextButton.styleFrom(
+                  padding: EdgeInsets.zero,
+                  minimumSize: const Size(0, 34),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
+                child: Text('${alerts.length - 4} more'),
               ),
-          ],
+            ),
         ],
       ),
     );
@@ -545,85 +495,49 @@ class _FinanceSnapshot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SectionCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const PanelHeading(title: 'Today’s money', trailing: 'SEPARATE'),
-          const SizedBox(height: 11),
-          _MoneyRow(
-            label: 'Income recorded today',
-            value: formatMoney(income),
-            color: FleetColors.green,
-          ),
-          const SizedBox(height: 8),
-          _MoneyRow(
-            label: 'Remittances received today',
-            value: formatMoney(remittances),
-            color: FleetColors.ink,
-          ),
-          const SizedBox(height: 8),
-          _MoneyRow(
-            label: 'Vehicle costs this month',
-            value: formatMoney(monthExpenses),
-            color: FleetColors.red,
-          ),
-          const SizedBox(height: 10),
-          const Divider(),
-          const SizedBox(height: 6),
-          const Text(
-            'These figures are kept separate. This app does not silently net '
-            'income against expenses or remittances.',
-            style: TextStyle(
-              fontSize: 10,
-              color: FleetColors.muted,
-              height: 1.4,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton.icon(
-              onPressed: () => onNavigate('Finance'),
-              icon: const Icon(Icons.arrow_forward_rounded, size: 16),
-              label: const Text('Open finance'),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _MoneyRow extends StatelessWidget {
-  const _MoneyRow({
-    required this.label,
-    required this.value,
-    required this.color,
-  });
-
-  final String label;
-  final String value;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
+    return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Expanded(
-          child: Text(
-            label,
-            style: const TextStyle(fontSize: 10.5, color: FleetColors.muted),
-          ),
+        Row(
+          children: [
+            const Expanded(
+              child: Text(
+                'Today',
+                style: TextStyle(
+                  fontFamily: 'Manrope',
+                  fontSize: 15.5,
+                  fontWeight: FontWeight.w800,
+                  color: FleetColors.ink,
+                  letterSpacing: -.35,
+                ),
+              ),
+            ),
+            TextButton(
+              onPressed: () => onNavigate('Finance'),
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                minimumSize: const Size(0, 34),
+              ),
+              child: const Text('Finance'),
+            ),
+          ],
         ),
-        const SizedBox(width: 8),
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 11.5,
-            fontWeight: FontWeight.w800,
-            color: color,
+        const SizedBox(height: 2),
+        Container(
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 6),
+          decoration: BoxDecoration(
+            color: FleetColors.surface,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: FleetColors.warmGrey, width: .7),
+          ),
+          child: Row(
+            children: [
+              Expanded(child: _MoneyStat('Income', income)),
+              const _MoneyDivider(),
+              Expanded(child: _MoneyStat('Remittances', remittances)),
+              const _MoneyDivider(),
+              Expanded(child: _MoneyStat('Costs · month', monthExpenses)),
+            ],
           ),
         ),
       ],
@@ -631,165 +545,52 @@ class _MoneyRow extends StatelessWidget {
   }
 }
 
-class _CostSummary extends StatelessWidget {
-  const _CostSummary({
-    required this.monthExpenses,
-    required this.allExpenses,
-    required this.count,
-    required this.categories,
-    required this.maxCategory,
-    required this.onNavigate,
-  });
-
-  final double monthExpenses;
-  final double allExpenses;
-  final int count;
-  final List<MapEntry<String, double>> categories;
-  final double maxCategory;
-  final ValueChanged<String> onNavigate;
+class _MoneyDivider extends StatelessWidget {
+  const _MoneyDivider();
 
   @override
-  Widget build(BuildContext context) {
-    return SectionCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          PanelHeading(
-            title: 'Maintenance & cost summary',
-            trailing: '$count ENTRIES',
-          ),
-          const SizedBox(height: 11),
-          Row(
-            children: [
-              Expanded(
-                child: _CostStat(
-                  label: 'THIS MONTH',
-                  value: formatMoney(monthExpenses),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _CostStat(
-                  label: 'ALL RECORDED',
-                  value: formatMoney(allExpenses),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          if (categories.isEmpty)
-            const Text(
-              'No expenses recorded yet. Add a battery, engine oil, tyres, '
-              'repair, service, or other vehicle cost to start a real cost '
-              'summary.',
-              style: TextStyle(
-                fontSize: 11,
-                height: 1.45,
-                color: FleetColors.muted,
-              ),
-            )
-          else ...[
-            const Text(
-              'Spend by category (active entries)',
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
-                color: FleetColors.muted,
-              ),
-            ),
-            const SizedBox(height: 9),
-            ...categories
-                .take(4)
-                .map(
-                  (entry) => Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Column(
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                entry.key,
-                                style: const TextStyle(fontSize: 11),
-                              ),
-                            ),
-                            Text(
-                              formatMoney(entry.value),
-                              style: const TextStyle(
-                                fontSize: 10.5,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 4),
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(10),
-                          child: LinearProgressIndicator(
-                            value: maxCategory <= 0
-                                ? 0
-                                : (entry.value / maxCategory).clamp(0, 1),
-                            minHeight: 5,
-                            backgroundColor: FleetColors.canvas,
-                            valueColor: const AlwaysStoppedAnimation(
-                              FleetColors.ink,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-          ],
-          const SizedBox(height: 4),
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton.icon(
-              onPressed: () => onNavigate('Maintenance'),
-              icon: const Icon(Icons.arrow_forward_rounded, size: 16),
-              label: const Text('Open maintenance'),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget build(BuildContext context) =>
+      Container(width: .7, height: 30, color: FleetColors.warmGrey);
 }
 
-class _CostStat extends StatelessWidget {
-  const _CostStat({required this.label, required this.value});
+class _MoneyStat extends StatelessWidget {
+  const _MoneyStat(this.label, this.amount);
+
   final String label;
-  final String value;
+  final double amount;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: FleetColors.canvas,
-        borderRadius: BorderRadius.circular(11),
-      ),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Text(
-            label,
-            style: const TextStyle(
-              fontSize: 8.5,
-              letterSpacing: .7,
-              fontWeight: FontWeight.w700,
-              color: FleetColors.muted,
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              formatMoney(amount),
+              maxLines: 1,
+              style: const TextStyle(
+                fontFamily: 'Manrope',
+                fontSize: 14,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -.3,
+                color: FleetColors.ink,
+              ),
             ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 3),
           Text(
-            value,
+            label,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w800,
-              color: FleetColors.ink,
+              fontFamily: 'Manrope',
+              fontSize: 10,
+              color: FleetColors.muted,
             ),
           ),
         ],
@@ -805,36 +606,28 @@ class _RecentActivity extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SectionCard(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const PanelHeading(title: 'Recent activity', trailing: 'SAVED'),
-          const SizedBox(height: 10),
+          const PanelHeading(title: 'Recent activity'),
+          const SizedBox(height: 4),
           if (items.isEmpty)
-            const EmptyState(
-              icon: Icons.history_rounded,
-              title: 'No activity yet',
-              body:
-                  'Vehicle, driver, hire, expense, income, and remittance '
-                  'records will appear here after you save them.',
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 14),
+              child: Text(
+                'Saved records will appear here.',
+                style: TextStyle(fontSize: 11.5, color: FleetColors.muted),
+              ),
             )
           else
             ...items.map(
               (item) => Padding(
-                padding: const EdgeInsets.only(bottom: 10),
+                padding: const EdgeInsets.symmetric(vertical: 7),
                 child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(
-                      width: 30,
-                      height: 30,
-                      decoration: BoxDecoration(
-                        color: FleetColors.canvas,
-                        borderRadius: BorderRadius.circular(9),
-                      ),
-                      child: Icon(item.icon, size: 15, color: FleetColors.ink),
-                    ),
-                    const SizedBox(width: 9),
+                    Icon(item.icon, size: 17, color: FleetColors.muted),
+                    const SizedBox(width: 10),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -844,29 +637,28 @@ class _RecentActivity extends StatelessWidget {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
-                              fontSize: 11.5,
+                              fontSize: 12,
                               fontWeight: FontWeight.w700,
                             ),
                           ),
-                          const SizedBox(height: 2),
                           Text(
                             item.subtitle,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
-                              fontSize: 10,
-                              color: FleetColors.muted,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            formatDateTime(item.at),
-                            style: const TextStyle(
-                              fontSize: 9,
+                              fontSize: 10.5,
                               color: FleetColors.muted,
                             ),
                           ),
                         ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      formatDate(item.at),
+                      style: const TextStyle(
+                        fontSize: 10,
+                        color: FleetColors.faint,
                       ),
                     ),
                   ],

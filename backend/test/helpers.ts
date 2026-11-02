@@ -1,4 +1,4 @@
-import type { PoolClient } from "pg";
+import type { PoolClient } from "@neondatabase/serverless";
 import type { AppConfig } from "../src/config.js";
 import type { Database } from "../src/db/database.js";
 import {
@@ -23,7 +23,6 @@ export function makeConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     logLevel: "silent",
     database: {
       url: "postgresql://app_rw:test@localhost:5432/fleet_test",
-      ssl: false,
       poolMax: 2,
       expectedRole: "app_rw",
     },
@@ -98,6 +97,7 @@ export class FakeDatabase implements Database {
   withFleetError: Error | null = null;
   schemaReadyResult = true;
   fleetCalls = 0;
+  userCalls = 0;
   platformCalls = 0;
 
   async ping(): Promise<void> {}
@@ -120,6 +120,14 @@ export class FakeDatabase implements Database {
     if (this.withFleetError) {
       throw this.withFleetError;
     }
+    return work(this.client);
+  }
+
+  async withUser<T>(
+    _session: Session,
+    work: (client: PoolClient) => Promise<T>,
+  ): Promise<T> {
+    this.userCalls += 1;
     return work(this.client);
   }
 

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../data/backup_service.dart';
-import '../data/fleet_database.dart';
 import '../data/vehicle_import_service.dart';
 import '../models/fleet_snapshot.dart';
 import '../ui/common.dart';
@@ -24,25 +23,8 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   bool _working = false;
-  String? _lastBackupPath;
   String? _message;
   String? _error;
-  String? _databasePath;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadPath();
-  }
-
-  Future<void> _loadPath() async {
-    try {
-      final path = await FleetDatabase.instance.databasePath;
-      if (mounted) setState(() => _databasePath = path);
-    } catch (_) {
-      // The storage error is shown by the main shell when the database fails.
-    }
-  }
 
   Future<void> _exportBackup() async {
     setState(() {
@@ -55,7 +37,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       await widget.onChanged();
       if (!mounted) return;
       setState(() {
-        _lastBackupPath = backup.path;
         _message =
             'Backup created with ${_total(backup.counts)} records. '
             'The share sheet opens so you can save it outside the app.';
@@ -65,16 +46,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
       } catch (_) {
         if (!mounted) return;
         setState(() {
-          _message =
-              'Backup saved on this phone at ${backup.path}. The share '
-              'sheet was unavailable.';
+          _message = 'Backup created. The share sheet was unavailable.';
         });
       }
-    } catch (error) {
+    } catch (_) {
       if (!mounted) return;
-      setState(
-        () => _error = 'We couldn’t create a backup. ${error.toString()}',
-      );
+      setState(() => _error = 'We couldn’t create a backup. Try again.');
     } finally {
       if (mounted) setState(() => _working = false);
     }
@@ -206,7 +183,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       await widget.onChanged();
       if (!mounted) return;
       setState(() {
-        _message = 'Imported ${result.added} vehicle'
+        _message =
+            'Imported ${result.added} vehicle'
             '${result.added == 1 ? '' : 's'}.'
             '${result.duplicates > 0 ? ' Skipped ${result.duplicates} matching registration${result.duplicates == 1 ? '' : 's'}.' : ''}'
             '${result.invalid > 0 ? ' Skipped ${result.invalid} incomplete or invalid row${result.invalid == 1 ? '' : 's'}.' : ''}';
@@ -217,8 +195,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } catch (_) {
       if (!mounted) return;
       setState(
-        () => _error =
-            'We couldn’t import that CSV. Check that it is the recovered fleet report and try again.',
+        () => _error = 'We couldn’t import that CSV. Check that it is the recovered fleet report and try again.',
       );
     } finally {
       if (mounted) setState(() => _working = false);
@@ -255,16 +232,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final wide = constraints.maxWidth >= 760;
         return ListView(
-          padding: EdgeInsets.fromLTRB(wide ? 30 : 18, 22, wide ? 30 : 18, 28),
+          padding: screenPadding(context),
           children: [
             const PageHeading(
-              eyebrow: 'Data & device',
               title: 'Settings & backup',
-              description:
-                  'Protect the records saved on this phone and understand the '
-                  'limits of local-only access.',
+              subtitle: 'Back up, restore, or import fleet records',
             ),
             const SizedBox(height: 14),
             if (_message != null) ...[
@@ -282,116 +255,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               const SizedBox(height: 10),
             ],
-            if (wide)
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(child: _storageCard(counts)),
-                  const SizedBox(width: 13),
-                  Expanded(child: _backupCard()),
-                ],
-              )
-            else ...[
-              _storageCard(counts),
-              const SizedBox(height: 13),
-              _backupCard(),
-            ],
-            const SizedBox(height: 13),
+            _backupCard(),
+            const SizedBox(height: 12),
             _importCard(),
-            const SizedBox(height: 13),
-            SectionCard(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const PanelHeading(
-                    title: 'Local-only access',
-                    trailing: 'IMPORTANT',
-                  ),
-                  const SizedBox(height: 10),
-                  const InfoBanner(
-                    icon: Icons.shield_outlined,
-                    text:
-                        'Local records are stored only on this device. There '
-                        'is no cloud account, team sync, or server backup. '
-                        'Anyone with access to this phone can open the app and '
-                        'its records.',
-                    tone: AlertTone.warning,
-                  ),
-                  const SizedBox(height: 9),
-                  const InfoBanner(
-                    icon: Icons.admin_panel_settings_outlined,
-                    text:
-                        'Roles are not securely enforced. The owner, finance '
-                        'manager, and driver records in this MVP are a local '
-                        'workflow only until authentication and a shared '
-                        'backend exist. Do not treat this app as an access '
-                        'control system.',
-                  ),
-                  const SizedBox(height: 9),
-                  const InfoBanner(
-                    icon: Icons.lock_outline_rounded,
-                    text:
-                        'Financial history is protected in the app: expenses, '
-                        'income, and remittances can be voided with a reason but '
-                        'not deleted. A restore or device loss can still replace '
-                        'or remove local data, so keep regular backups.',
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 13),
-            SectionCard(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const PanelHeading(
-                    title: 'Data protection summary',
-                    trailing: 'MVP',
-                  ),
-                  const SizedBox(height: 10),
-                  const DetailRow(
-                    label: 'Storage engine',
-                    value: 'SQLite database on this phone',
-                  ),
-                  DetailRow(
-                    label: 'Database path',
-                    value: _databasePath ?? 'Resolving…',
-                  ),
-                  const DetailRow(
-                    label: 'Backup format',
-                    value: 'JSON file with all six record tables',
-                  ),
-                  const DetailRow(
-                    label: 'Report format',
-                    value: 'CSV export with date-filtered records',
-                  ),
-                  const DetailRow(
-                    label: 'Data sharing',
-                    value: 'None · no Supabase, no cloud sync',
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Backups can contain personal and financial information. '
-                    'Store them somewhere safe and share them only with '
-                    'authorised people.',
-                    style: TextStyle(
-                      fontSize: 10,
-                      color: FleetColors.muted,
-                      height: 1.45,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 9),
-            const LocalDataNotice(),
-            const SizedBox(height: 14),
-            const Center(
-              child: Text(
-                'IP Motors Fleet Manager · Flutter MVP 1.0.0',
-                style: TextStyle(fontSize: 9.5, color: FleetColors.muted),
-              ),
-            ),
+            const SizedBox(height: 12),
+            _storageCard(counts),
           ],
         );
       },
@@ -403,10 +271,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const PanelHeading(
-            title: 'Records on this device',
-            trailing: 'SQLITE',
-          ),
+          const PanelHeading(title: 'Saved records'),
           const SizedBox(height: 11),
           Wrap(
             spacing: 8,
@@ -420,35 +285,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _CountChip(label: 'Remittances', value: counts['remittances']!),
             ],
           ),
-          const SizedBox(height: 11),
-          Text(
-            'Loaded ${formatDateTime(widget.snapshot.loadedAt.toIso8601String())}. '
-            'Counts come from the saved records, not sample data.',
-            style: const TextStyle(
-              fontSize: 10,
-              color: FleetColors.muted,
-              height: 1.4,
-            ),
-          ),
-          if (_lastBackupPath != null) ...[
-            const SizedBox(height: 10),
-            const Divider(),
-            const SizedBox(height: 6),
-            const Text(
-              'LAST BACKUP CREATED',
-              style: TextStyle(
-                fontSize: 8.5,
-                letterSpacing: .7,
-                fontWeight: FontWeight.w700,
-                color: FleetColors.muted,
-              ),
-            ),
-            const SizedBox(height: 3),
-            SelectableText(
-              _lastBackupPath!,
-              style: const TextStyle(fontSize: 9.5, height: 1.4),
-            ),
-          ],
         ],
       ),
     );
@@ -459,19 +295,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const PanelHeading(title: 'Backup and restore', trailing: 'JSON'),
-          const SizedBox(height: 9),
+          const PanelHeading(title: 'Backup & restore'),
+          const SizedBox(height: 6),
           const Text(
-            'Export every vehicle, driver, expense, hire, income, and '
-            'remittance record to a JSON file. Restoring replaces all local '
-            'records, so export first if you need the current data.',
+            'Export every record to a file you can keep outside the app.',
             style: TextStyle(
-              fontSize: 11,
+              fontSize: 11.5,
               color: FleetColors.muted,
-              height: 1.5,
+              height: 1.45,
             ),
           ),
-          const SizedBox(height: 13),
+          const SizedBox(height: 12),
           SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
@@ -487,11 +321,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     )
                   : const Icon(Icons.download_rounded, size: 18),
               label: Text(_working ? 'Working…' : 'Export backup'),
-              style: FilledButton.styleFrom(
-                backgroundColor: FleetColors.ink,
-                foregroundColor: FleetColors.white,
-                minimumSize: const Size(0, 46),
-              ),
             ),
           ),
           const SizedBox(height: 8),
@@ -501,19 +330,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onPressed: _working ? null : _restoreBackup,
               icon: const Icon(Icons.upload_file_rounded, size: 18),
               label: const Text('Restore from backup'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: FleetColors.ink,
-                minimumSize: const Size(0, 46),
-                side: const BorderSide(color: FleetColors.warmGrey),
-              ),
             ),
           ),
-          const SizedBox(height: 9),
+          const SizedBox(height: 10),
           const Text(
-            'Exporting opens the phone share sheet. Restoring shows a preview '
-            'and requires confirmation before any local record is replaced.',
+            'Restoring replaces all local records and asks for confirmation '
+            'first.',
             style: TextStyle(
-              fontSize: 10,
+              fontSize: 10.5,
               color: FleetColors.muted,
               height: 1.4,
             ),
@@ -528,16 +352,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const PanelHeading(title: 'Recover vehicle records', trailing: 'CSV'),
-          const SizedBox(height: 9),
+          const PanelHeading(title: 'Import vehicles'),
+          const SizedBox(height: 6),
           const Text(
-            'Import the vehicle export recovered from the previous fleet '
-            'system. The app adds vehicles and document dates, while keeping '
-            'existing registrations intact.',
+            'Add vehicles from a CSV export. Existing registrations are kept.',
             style: TextStyle(
-              fontSize: 11,
+              fontSize: 11.5,
               color: FleetColors.muted,
-              height: 1.5,
+              height: 1.45,
             ),
           ),
           const SizedBox(height: 12),
@@ -547,11 +369,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onPressed: _working ? null : _importVehicleCsv,
               icon: const Icon(Icons.table_view_outlined, size: 18),
               label: const Text('Import vehicle CSV'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: FleetColors.ink,
-                minimumSize: const Size(0, 46),
-                side: const BorderSide(color: FleetColors.warmGrey),
-              ),
             ),
           ),
         ],

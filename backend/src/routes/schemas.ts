@@ -219,6 +219,31 @@ export const financeIdParamsSchema = z
   })
   .strict();
 
+const invitedEmailSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .min(3)
+  .max(320)
+  .email();
+
+export const membershipInvitationBodySchema = z
+  .object({
+    email: invitedEmailSchema,
+    role: z.enum([
+      "fleet_admin",
+      "fleet_manager",
+      "finance_manager",
+      "fleet_member",
+      "read_only",
+    ]),
+  })
+  .strict();
+
+export const membershipInvitationParamsSchema = z
+  .object({ invitationId: uuidSchema })
+  .strict();
+
 export const voidBodySchema = z
   .object({
     reason: z

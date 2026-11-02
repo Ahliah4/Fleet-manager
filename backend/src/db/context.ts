@@ -1,4 +1,4 @@
-import type { Pool, PoolClient } from "pg";
+import type { Pool, PoolClient } from "@neondatabase/serverless";
 import type { FleetSession, Session, SessionMembership } from "../domain/session.js";
 import type { FleetRole } from "../domain/permissions.js";
 
@@ -52,6 +52,17 @@ export async function setFleetContext(
 }
 
 export async function setPlatformContext(
+  client: PoolClient,
+  session: Session,
+): Promise<void> {
+  assertUuid(session.user.id, "user id");
+  await setLocal(client, "app.user_id", session.user.id);
+  await setLocal(client, "app.fleet_id", "");
+  await setLocal(client, "app.role", "");
+  await setLocal(client, "app.permissions", "");
+}
+
+export async function setUserContext(
   client: PoolClient,
   session: Session,
 ): Promise<void> {

@@ -1,21 +1,13 @@
-import { types } from "pg";
-import pg from "pg";
+import { Pool } from "@neondatabase/serverless";
 import type { DatabaseConfig } from "../config.js";
+import "./neon.js";
 
-const { Pool } = pg;
-
-// Keep DATE values as YYYY-MM-DD strings so a server timezone cannot shift them.
-types.setTypeParser(types.builtins.DATE, (value) => value);
-
-export function createPool(config: DatabaseConfig): pg.Pool {
-  const pool = new Pool({
+export function createPool(config: DatabaseConfig): Pool {
+  return new Pool({
     connectionString: config.url,
-    ssl: config.ssl ? { rejectUnauthorized: true } : undefined,
     max: config.poolMax,
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 5_000,
     application_name: "fleet-api",
   });
-
-  return pool;
 }

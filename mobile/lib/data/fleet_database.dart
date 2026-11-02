@@ -1,5 +1,6 @@
 import 'package:sqflite/sqflite.dart';
 
+import '../models/app_role.dart';
 import '../models/driver.dart';
 import '../models/expense.dart';
 import '../models/finance_entry.dart';
@@ -12,7 +13,8 @@ class FleetDatabase {
 
   static final FleetDatabase instance = FleetDatabase._();
   static const _databaseName = 'ip_motors_fleet.db';
-  static const _databaseVersion = 3;
+  static const _databaseVersion = 4;
+  static const _roleSettingKey = 'workspace_role';
 
   Database? _database;
   String? _resolvedPath;
@@ -32,6 +34,7 @@ class FleetDatabase {
         await _createHiresTable(db);
         await _createIncomeTable(db);
         await _createRemittancesTable(db);
+        await _createSettingsTable(db);
         await _createIndexes(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
@@ -40,6 +43,9 @@ class FleetDatabase {
         }
         if (oldVersion < 3) {
           await _upgradeToVersion3(db);
+        }
+        if (oldVersion < 4) {
+          await _createSettingsTable(db);
         }
       },
     );
@@ -70,6 +76,39 @@ class FleetDatabase {
       remittances: results[5] as List<Remittance>,
       loadedAt: DateTime.now(),
     );
+  }
+
+  // Local preferences --------------------------------------------------------
+
+  Future<AppRole> getAppRole() async {
+    final value = await getSetting(_roleSettingKey);
+    return AppRole.fromStorage(value);
+  }
+
+  Future<void> setAppRole(AppRole role) async {
+    await setSetting(_roleSettingKey, role.storageKey);
+  }
+
+  Future<String?> getSetting(String key) async {
+    final db = await database;
+    final rows = await db.query(
+      'app_settings',
+      columns: ['value'],
+      where: 'key = ?',
+      whereArgs: [key],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return rows.first['value'] as String?;
+  }
+
+  Future<void> setSetting(String key, String value) async {
+    final db = await database;
+    await db.insert('app_settings', {
+      'key': key,
+      'value': value,
+      'updated_at': DateTime.now().toIso8601String(),
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   // Vehicles -----------------------------------------------------------------
@@ -749,6 +788,16 @@ class FleetDatabase {
         void_reason TEXT,
         voided_at TEXT,
         created_at TEXT NOT NULL
+      )
+    ''');
+  }
+
+  static Future<void> _createSettingsTable(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS app_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL
       )
     ''');
   }

@@ -12,7 +12,6 @@ export interface AuthConfig {
 
 export interface DatabaseConfig {
   url: string;
-  ssl: boolean;
   poolMax: number;
   expectedRole: string;
 }
@@ -42,7 +41,6 @@ const envSchema = z.object({
     .enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"])
     .default("info"),
   DATABASE_URL: z.string().trim().min(1, "DATABASE_URL is required."),
-  DATABASE_SSL: z.enum(["true", "false"]).default("true"),
   DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(50).default(10),
   DATABASE_EXPECTED_ROLE: z.string().trim().min(1).max(63).default("app_rw"),
   AUTH_ISSUER: z.string().trim().max(500).optional(),
@@ -79,7 +77,6 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
     logLevel: env.LOG_LEVEL,
     database: {
       url: env.DATABASE_URL,
-      ssl: env.DATABASE_SSL === "true",
       poolMax: env.DATABASE_POOL_MAX,
       expectedRole: env.DATABASE_EXPECTED_ROLE,
     },

@@ -53,7 +53,8 @@ packaging. It is designed for Neon PostgreSQL and provider-neutral JWT/JWKS sign
 
 The PWA and Flutter app still use their local IndexedDB and SQLite stores. Neither
 client is connected to the backend, no local data has been migrated, and nothing has
-been deployed. Neon migrations have not been run from this workspace. Authentication
+been deployed. The Neon migrations have been applied to the development branch only;
+the production branch has not been touched. Authentication
 fails closed until an identity provider is configured.
 
 ## Product direction

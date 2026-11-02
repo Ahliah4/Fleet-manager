@@ -126,58 +126,58 @@ class _HiresScreenState extends State<HiresScreen> {
     final completed = widget.snapshot.hires
         .where((hire) => hire.status == 'Completed')
         .length;
+    final cancelled = widget.snapshot.hires
+        .where((hire) => hire.status == 'Cancelled')
+        .length;
 
     return RefreshIndicator(
       color: FleetColors.ink,
       onRefresh: widget.onChanged,
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(18, 22, 18, 28),
+        padding: screenPadding(context),
         children: [
           PageHeading(
-            eyebrow: 'Vehicle use',
             title: 'Hires',
-            description:
-                '$active active · $completed completed · '
-                '${widget.snapshot.hires.length} hire records. No GPS or live '
-                'tracking is used.',
-            action: FilledButton.icon(
-              onPressed: () => _openForm(),
-              icon: const Icon(Icons.add_rounded, size: 18),
-              label: const Text('Record'),
-              style: FilledButton.styleFrom(
-                backgroundColor: FleetColors.ink,
-                foregroundColor: FleetColors.white,
+            subtitle: widget.snapshot.hires.isEmpty
+                ? 'Record a vehicle hire'
+                : '$active active · $completed completed'
+                      '${cancelled > 0 ? ' · $cancelled cancelled' : ''}',
+            actions: [
+              FilledButton.icon(
+                onPressed: () => _openForm(),
+                icon: const Icon(Icons.add_rounded, size: 18),
+                label: const Text('Record hire'),
               ),
-            ),
+            ],
           ),
-          const SizedBox(height: 15),
-          TextField(
+          const SizedBox(height: 14),
+          StatBar(
+            stats: [
+              HeroStat('Hires', '${widget.snapshot.hires.length}'),
+              HeroStat('Active', '$active'),
+              HeroStat('Completed', '$completed'),
+              HeroStat('Cancelled', '$cancelled', alert: cancelled > 0),
+            ],
+          ),
+          const SizedBox(height: 12),
+          FleetSearchField(
+            hint: 'Search vehicle, driver, or status',
             onChanged: (value) => setState(() => _query = value),
-            decoration: const InputDecoration(
-              prefixIcon: Icon(Icons.search_rounded),
-              hintText: 'Search vehicle, driver, or status',
-            ),
           ),
-          const SizedBox(height: 10),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: ['All', ...hireStatuses].map((status) {
-                final count = status == 'All'
-                    ? widget.snapshot.hires.length
-                    : widget.snapshot.hires
-                          .where((hire) => hire.status == status)
-                          .length;
-                return Padding(
-                  padding: const EdgeInsets.only(right: 7),
-                  child: DateFilterChip(
-                    label: '$status ($count)',
-                    selected: _filter == status,
-                    onTap: () => setState(() => _filter = status),
-                  ),
-                );
-              }).toList(),
-            ),
+          const SizedBox(height: 8),
+          FilterWrap(
+            children: ['All', ...hireStatuses].map((status) {
+              final count = status == 'All'
+                  ? widget.snapshot.hires.length
+                  : widget.snapshot.hires
+                        .where((hire) => hire.status == status)
+                        .length;
+              return DateFilterChip(
+                label: '$status ($count)',
+                selected: _filter == status,
+                onTap: () => setState(() => _filter = status),
+              );
+            }).toList(),
           ),
           const SizedBox(height: 12),
           if (hires.isEmpty)
@@ -185,26 +185,11 @@ class _HiresScreenState extends State<HiresScreen> {
               child: EmptyState(
                 icon: Icons.key_outlined,
                 title: widget.snapshot.hires.isEmpty
-                    ? 'No hires recorded yet'
+                    ? 'No hires yet'
                     : 'No matching hires',
                 body: widget.snapshot.hires.isEmpty
-                    ? 'Record which vehicle and driver were hired, the dates, '
-                          'and the current status. Active hires move the vehicle '
-                          'to On hire; completed or cancelled hires return it to '
-                          'Available when no other hire is active.'
+                    ? 'Record the vehicle, driver, dates, and status of a hire.'
                     : 'Try another vehicle, driver, or status filter.',
-                actionLabel:
-                    widget.snapshot.hires.isEmpty &&
-                        widget.snapshot.vehicles.isNotEmpty &&
-                        widget.snapshot.drivers.isNotEmpty
-                    ? 'Record first hire'
-                    : null,
-                onAction:
-                    widget.snapshot.hires.isEmpty &&
-                        widget.snapshot.vehicles.isNotEmpty &&
-                        widget.snapshot.drivers.isNotEmpty
-                    ? () => _openForm()
-                    : null,
               ),
             )
           else
@@ -216,16 +201,6 @@ class _HiresScreenState extends State<HiresScreen> {
                 onCancel: () => _quickStatus(hire, 'Cancelled'),
               ),
             ),
-          const SizedBox(height: 8),
-          const InfoBanner(
-            icon: Icons.history_rounded,
-            text:
-                'Hire records are kept as history after completion or '
-                'cancellation. They are not deleted, so vehicle use and linked '
-                'money records stay traceable.',
-          ),
-          const SizedBox(height: 9),
-          const LocalDataNotice(),
         ],
       ),
     );
@@ -262,7 +237,9 @@ class _HireCard extends StatelessWidget {
                   width: 42,
                   height: 42,
                   decoration: BoxDecoration(
-                    color: active ? FleetColors.ink : FleetColors.canvas,
+                    color: active
+                        ? FleetColors.ink
+                        : FleetColors.mist.withValues(alpha: .62),
                     borderRadius: BorderRadius.circular(13),
                   ),
                   child: Icon(
@@ -301,34 +278,50 @@ class _HireCard extends StatelessWidget {
                   hire.status,
                   overrideColor: active ? FleetColors.ink : null,
                 ),
-                PopupMenuButton<String>(
-                  tooltip: 'Hire actions',
-                  onSelected: (value) {
-                    if (value == 'edit') {
-                      onEdit();
-                    } else if (value == 'complete') {
-                      onComplete();
-                    } else if (value == 'cancel') {
-                      onCancel();
-                    }
-                  },
-                  itemBuilder: (context) => [
-                    const PopupMenuItem(
-                      value: 'edit',
-                      child: Text('Edit hire'),
-                    ),
-                    if (active) ...[
-                      const PopupMenuItem(
+                if (active)
+                  PopupMenuButton<String>(
+                    tooltip: 'Hire actions',
+                    onSelected: (value) {
+                      if (value == 'complete') {
+                        onComplete();
+                      } else if (value == 'cancel') {
+                        onCancel();
+                      }
+                    },
+                    itemBuilder: (context) => const [
+                      PopupMenuItem(
                         value: 'complete',
-                        child: Text('Mark completed'),
+                        child: Row(
+                          children: [
+                            Icon(Icons.check_circle_outline_rounded, size: 18),
+                            SizedBox(width: 8),
+                            Text('Mark completed'),
+                          ],
+                        ),
                       ),
-                      const PopupMenuItem(
+                      PopupMenuDivider(),
+                      PopupMenuItem(
                         value: 'cancel',
-                        child: Text('Cancel hire'),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.cancel_outlined,
+                              size: 18,
+                              color: FleetColors.red,
+                            ),
+                            SizedBox(width: 8),
+                            Text(
+                              'Cancel hire',
+                              style: TextStyle(
+                                color: FleetColors.red,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ],
-                  ],
-                ),
+                  ),
               ],
             ),
             const SizedBox(height: 11),
@@ -481,8 +474,7 @@ class _HireFormSheetState extends State<_HireFormSheet> {
       _saving = true;
       _error = null;
     });
-    final closingDate = _endDate ??
-        (_status == 'Active' ? null : todayIso());
+    final closingDate = _endDate ?? (_status == 'Active' ? null : todayIso());
     final hire = Hire(
       id: widget.hire?.id,
       vehicleId: _vehicleId,

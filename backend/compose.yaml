@@ -1,65 +1,22 @@
 name: fleet-manager-backend
 
-# Local development only. The passwords below are generated for this compose
-# stack and must never be used for Neon or any shared environment.
+# Local PostgreSQL only. Migrations remain an explicit Node command.
 services:
   db:
     image: postgres:17-alpine
     environment:
       POSTGRES_DB: fleet
       POSTGRES_USER: fleet_owner
-      POSTGRES_PASSWORD: fleet_local_only
+      POSTGRES_PASSWORD: ${LOCAL_POSTGRES_PASSWORD:?Set LOCAL_POSTGRES_PASSWORD outside the repository}
     ports:
       - "5432:5432"
     volumes:
       - fleet_pgdata:/var/lib/postgresql/data
-      - ./scripts/init-local-db.sql:/docker-entrypoint-initdb.d/001-app-role.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U fleet_owner -d fleet"]
       interval: 5s
       timeout: 5s
       retries: 20
-
-  migrate:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    depends_on:
-      db:
-        condition: service_healthy
-    environment:
-      DATABASE_SSL: "false"
-      MIGRATION_DATABASE_URL: postgresql://fleet_owner:fleet_local_only@db:5432/fleet
-    command:
-      - node
-      - dist/scripts/migrate.js
-      - --apply
-      - --confirm-target=db:5432/fleet
-    restart: "no"
-
-  api:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    depends_on:
-      db:
-        condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
-    environment:
-      NODE_ENV: development
-      HOST: 0.0.0.0
-      PORT: 3000
-      LOG_LEVEL: info
-      DATABASE_URL: postgresql://app_rw:fleet_local_only@db:5432/fleet
-      DATABASE_SSL: "false"
-      DATABASE_POOL_MAX: "10"
-      DATABASE_EXPECTED_ROLE: app_rw
-      AUTH_ISSUER: ${AUTH_ISSUER:-}
-      AUTH_AUDIENCE: ${AUTH_AUDIENCE:-}
-      AUTH_JWKS_URL: ${AUTH_JWKS_URL:-}
-    ports:
-      - "3000:3000"
 
 volumes:
   fleet_pgdata:
