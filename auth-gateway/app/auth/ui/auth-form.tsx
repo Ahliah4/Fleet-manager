@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
-import { authClient } from "@/lib/auth/client";
+import { getAuthClient } from "@/lib/auth/client";
 
 type Mode = "sign-in" | "sign-up";
 
@@ -20,6 +20,7 @@ export function AuthForm({ mode, returnTo }: { mode: Mode; returnTo?: string }) 
     const form = new FormData(event.currentTarget);
     const email = String(form.get("email") ?? "").trim();
     const password = String(form.get("password") ?? "");
+    const authClient = getAuthClient();
     const result = isSignUp
       ? await authClient.signUp.email({
           name: String(form.get("name") ?? "").trim(),
@@ -40,6 +41,7 @@ export function AuthForm({ mode, returnTo }: { mode: Mode; returnTo?: string }) 
   async function signInWithGoogle() {
     setBusy(true);
     setMessage(null);
+    const authClient = getAuthClient();
     const result = await authClient.signIn.social({
       provider: "google",
       callbackURL: `${window.location.origin}${returnTo === "/mobile/authorize" ? returnTo : "/auth/complete"}`,

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../data/backup_service.dart';
+import '../data/fleet_api_client.dart';
+import '../data/fleet_sync_service.dart';
 import '../data/vehicle_import_service.dart';
 import '../models/fleet_snapshot.dart';
 import '../ui/common.dart';
@@ -23,8 +25,114 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   bool _working = false;
+  bool _syncing = false;
   String? _message;
   String? _error;
+  SyncStatus? _syncStatus;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSyncStatus();
+  }
+
+  Future<void> _loadSyncStatus() async {
+    try {
+      final status = await FleetSyncService.instance.status();
+      if (mounted) setState(() => _syncStatus = status);
+    } catch (_) {
+      // Widget tests and previews may not initialize a SQLite factory. The
+      // card still renders from the configured state.
+    }
+  }
+
+  Future<void> _syncNow() async {
+    setState(() {
+      _syncing = true;
+      _error = null;
+      _message = null;
+    });
+    try {
+      final result = await FleetSyncService.instance.syncNow();
+      if (!mounted) return;
+      setState(() {
+        if (result.authRequired) {
+          _error = result.message;
+        } else {
+          _message = result.message;
+        }
+      });
+      await widget.onChanged();
+    } on FleetApiException catch (error) {
+      if (mounted) setState(() => _error = error.message);
+    } catch (_) {
+      if (mounted) {
+        setState(() => _error = 'We couldn’t sync with the shared workspace.');
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _syncing = false);
+        await _loadSyncStatus();
+      }
+    }
+  }
+
+  Future<void> _previewImport() async {
+    setState(() {
+      _working = true;
+      _error = null;
+      _message = null;
+    });
+    try {
+      final preview = await FleetSyncService.instance.previewVehicleImport();
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Vehicle import preview'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('New vehicles: ${preview.newVehicles}'),
+                Text('Already on the server: ${preview.matches}'),
+                Text('Conflicts: ${preview.conflicts}'),
+                Text('Invalid rows: ${preview.invalid}'),
+                if (preview.conflictSamples.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    'Review: ${preview.conflictSamples.join(', ')}',
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ],
+                const SizedBox(height: 12),
+                const Text(
+                  'This is a dry run. No server records were changed. The real '
+                  'import stays blocked until the owner explicitly approves it.',
+                  style: TextStyle(fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Close'),
+            ),
+          ],
+        ),
+      );
+    } on FleetApiException catch (error) {
+      if (mounted) setState(() => _error = error.message);
+    } catch (_) {
+      if (mounted) {
+        setState(() => _error = 'We couldn’t compare the local and server fleet.');
+      }
+    } finally {
+      if (mounted) setState(() => _working = false);
+    }
+  }
 
   Future<void> _exportBackup() async {
     setState(() {
@@ -255,6 +363,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               const SizedBox(height: 10),
             ],
+            _sharedWorkspaceCard(),
+            const SizedBox(height: 12),
             _backupCard(),
             const SizedBox(height: 12),
             _importCard(),
@@ -285,6 +395,93 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _CountChip(label: 'Remittances', value: counts['remittances']!),
             ],
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _sharedWorkspaceCard() {
+    final status = _syncStatus;
+    final configured = status?.configured ?? FleetSyncService.instance.isConfigured;
+    final pending = status?.pending ?? 0;
+    final conflicts = status?.conflicts ?? 0;
+    final last = status?.lastSyncedAt;
+    return SectionCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const PanelHeading(title: 'Shared workspace'),
+          const SizedBox(height: 6),
+          Text(
+            configured
+                ? 'This device is linked to the shared fleet API. Local edits '
+                      'are queued while offline and reviewed when they conflict.'
+                : 'This build has no shared fleet API configured. Records stay '
+                      'on this device until a staging API URL is supplied.',
+            style: const TextStyle(
+              fontSize: 11.5,
+              color: FleetColors.muted,
+              height: 1.45,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _CountChip(label: 'Queued', value: pending),
+              _CountChip(label: 'Conflicts', value: conflicts),
+            ],
+          ),
+          if (last != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Last synchronized ${formatDateTime(last.toIso8601String())}',
+              style: const TextStyle(
+                fontSize: 10.5,
+                color: FleetColors.muted,
+              ),
+            ),
+          ],
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: _syncing || !configured ? null : _syncNow,
+              icon: _syncing
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: FleetColors.white,
+                      ),
+                    )
+                  : const Icon(Icons.sync_rounded, size: 18),
+              label: Text(_syncing ? 'Synchronizing…' : 'Sync now'),
+            ),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _working || !configured ? null : _previewImport,
+              icon: const Icon(Icons.fact_check_outlined, size: 18),
+              label: const Text('Preview vehicle import'),
+            ),
+          ),
+          if (conflicts > 0) ...[
+            const SizedBox(height: 8),
+            const Text(
+              'Conflicting records were not overwritten. Review the record on '
+              'each device before saving again.',
+              style: TextStyle(
+                fontSize: 10.5,
+                color: FleetColors.muted,
+                height: 1.4,
+              ),
+            ),
+          ],
         ],
       ),
     );

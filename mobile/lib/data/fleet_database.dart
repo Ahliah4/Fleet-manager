@@ -13,7 +13,7 @@ class FleetDatabase {
 
   static final FleetDatabase instance = FleetDatabase._();
   static const _databaseName = 'ip_motors_fleet.db';
-  static const _databaseVersion = 4;
+  static const _databaseVersion = 5;
   static const _roleSettingKey = 'workspace_role';
 
   Database? _database;
@@ -36,6 +36,7 @@ class FleetDatabase {
         await _createRemittancesTable(db);
         await _createSettingsTable(db);
         await _createIndexes(db);
+        await _createSyncInfrastructure(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -47,9 +48,21 @@ class FleetDatabase {
         if (oldVersion < 4) {
           await _createSettingsTable(db);
         }
+        if (oldVersion < 5) {
+          await _upgradeToVersion5(db);
+        }
       },
     );
     return _database!;
+  }
+
+  /// Closes the cached connection. Tests use this to prove that queued
+  /// operations survive a process restart; production callers normally leave
+  /// the connection open for the app lifetime.
+  Future<void> close() async {
+    await _database?.close();
+    _database = null;
+    _resolvedPath = null;
   }
 
   Future<String> get databasePath async {
@@ -447,7 +460,9 @@ class FleetDatabase {
 
   Future<int> saveExpense(Expense expense) async {
     final db = await database;
-    final values = expense.toMap()..remove('id');
+    final values = expense.toMap()
+      ..remove('id')
+      ..['updated_at'] = DateTime.now().toIso8601String();
     return db.insert(
       'expenses',
       values,
@@ -463,6 +478,7 @@ class FleetDatabase {
         'is_voided': 1,
         'void_reason': reason.trim(),
         'voided_at': DateTime.now().toIso8601String(),
+        'updated_at': DateTime.now().toIso8601String(),
       },
       where: 'id = ?',
       whereArgs: [id],
@@ -487,7 +503,9 @@ class FleetDatabase {
 
   Future<int> saveIncome(Income income) async {
     final db = await database;
-    final values = income.toMap()..remove('id');
+    final values = income.toMap()
+      ..remove('id')
+      ..['updated_at'] = DateTime.now().toIso8601String();
     return db.insert(
       'income',
       values,
@@ -503,6 +521,7 @@ class FleetDatabase {
         'is_voided': 1,
         'void_reason': reason.trim(),
         'voided_at': DateTime.now().toIso8601String(),
+        'updated_at': DateTime.now().toIso8601String(),
       },
       where: 'id = ?',
       whereArgs: [id],
@@ -525,7 +544,9 @@ class FleetDatabase {
 
   Future<int> saveRemittance(Remittance remittance) async {
     final db = await database;
-    final values = remittance.toMap()..remove('id');
+    final values = remittance.toMap()
+      ..remove('id')
+      ..['updated_at'] = DateTime.now().toIso8601String();
     return db.insert(
       'remittances',
       values,
@@ -541,6 +562,7 @@ class FleetDatabase {
         'is_voided': 1,
         'void_reason': reason.trim(),
         'voided_at': DateTime.now().toIso8601String(),
+        'updated_at': DateTime.now().toIso8601String(),
       },
       where: 'id = ?',
       whereArgs: [id],
@@ -608,6 +630,15 @@ class FleetDatabase {
 
     final db = await database;
     await db.transaction((txn) async {
+      // A restore is a local recovery operation, not a set of edits to push.
+      // Suppress change capture and discard stale queued operations.
+      await txn.insert('sync_meta', {
+        'key': 'applying',
+        'value': '1',
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+      await txn.delete('sync_outbox');
+      await txn.delete('sync_conflicts');
+
       for (final table in [
         'income',
         'remittances',
@@ -646,6 +677,11 @@ class FleetDatabase {
           );
         }
       }
+
+      await txn.insert('sync_meta', {
+        'key': 'applying',
+        'value': '0',
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
     });
   }
 
@@ -678,6 +714,8 @@ class FleetDatabase {
         licence_expiry TEXT,
         is_available INTEGER NOT NULL DEFAULT 1,
         notes TEXT,
+        server_id TEXT,
+        server_updated_at TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT
       )
@@ -701,6 +739,8 @@ class FleetDatabase {
         next_service_date TEXT,
         notes TEXT,
         assigned_driver_id INTEGER REFERENCES drivers(id) ON DELETE SET NULL,
+        server_id TEXT,
+        server_updated_at TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT
       )
@@ -726,7 +766,10 @@ class FleetDatabase {
         is_voided INTEGER NOT NULL DEFAULT 0,
         void_reason TEXT,
         voided_at TEXT,
-        created_at TEXT NOT NULL
+        server_id TEXT,
+        server_updated_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT
       )
     ''');
     await db.execute(
@@ -745,6 +788,8 @@ class FleetDatabase {
         end_date TEXT,
         status TEXT NOT NULL DEFAULT 'Active',
         notes TEXT,
+        server_id TEXT,
+        server_updated_at TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT
       )
@@ -766,7 +811,10 @@ class FleetDatabase {
         is_voided INTEGER NOT NULL DEFAULT 0,
         void_reason TEXT,
         voided_at TEXT,
-        created_at TEXT NOT NULL
+        server_id TEXT,
+        server_updated_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT
       )
     ''');
   }
@@ -787,7 +835,10 @@ class FleetDatabase {
         is_voided INTEGER NOT NULL DEFAULT 0,
         void_reason TEXT,
         voided_at TEXT,
-        created_at TEXT NOT NULL
+        server_id TEXT,
+        server_updated_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT
       )
     ''');
   }
@@ -844,6 +895,125 @@ class FleetDatabase {
     await _createIncomeTable(db);
     await _createRemittancesTable(db);
     await _createIndexes(db);
+  }
+
+  static Future<void> _upgradeToVersion5(Database db) async {
+    const columns = <String, List<(String, String)>>{
+      'vehicles': [('server_id', 'TEXT'), ('server_updated_at', 'TEXT')],
+      'drivers': [('server_id', 'TEXT'), ('server_updated_at', 'TEXT')],
+      'hires': [('server_id', 'TEXT'), ('server_updated_at', 'TEXT')],
+      'expenses': [
+        ('server_id', 'TEXT'),
+        ('server_updated_at', 'TEXT'),
+        ('updated_at', 'TEXT'),
+      ],
+      'income': [
+        ('server_id', 'TEXT'),
+        ('server_updated_at', 'TEXT'),
+        ('updated_at', 'TEXT'),
+      ],
+      'remittances': [
+        ('server_id', 'TEXT'),
+        ('server_updated_at', 'TEXT'),
+        ('updated_at', 'TEXT'),
+      ],
+    };
+    for (final entry in columns.entries) {
+      for (final column in entry.value) {
+        await _addColumnIfMissing(db, entry.key, column.$1, column.$2);
+      }
+    }
+    for (final table in ['expenses', 'income', 'remittances']) {
+      await db.execute(
+        'UPDATE $table SET updated_at = created_at WHERE updated_at IS NULL',
+      );
+    }
+    await _createSyncInfrastructure(db);
+  }
+
+  static Future<void> _createSyncInfrastructure(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS sync_meta (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS sync_outbox (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        entity TEXT NOT NULL,
+        local_id INTEGER NOT NULL,
+        server_id TEXT,
+        operation TEXT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        next_attempt_at TEXT,
+        last_error TEXT,
+        created_at TEXT NOT NULL,
+        UNIQUE(entity, local_id, operation)
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS sync_outbox_due_idx '
+      'ON sync_outbox(next_attempt_at, id)',
+    );
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS sync_conflicts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        entity TEXT NOT NULL,
+        local_id INTEGER NOT NULL,
+        server_id TEXT,
+        message TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        resolved INTEGER NOT NULL DEFAULT 0
+      )
+    ''');
+
+    for (final table in const [
+      'vehicles',
+      'drivers',
+      'hires',
+      'expenses',
+      'income',
+      'remittances',
+    ]) {
+      await db.execute(
+        'CREATE UNIQUE INDEX IF NOT EXISTS ${table}_server_id_idx '
+        'ON $table(server_id) WHERE server_id IS NOT NULL',
+      );
+      await db.execute('''
+        CREATE TRIGGER IF NOT EXISTS ${table}_sync_insert
+        AFTER INSERT ON $table
+        WHEN COALESCE((SELECT value FROM sync_meta WHERE key = 'applying'), '0') <> '1'
+        BEGIN
+          DELETE FROM sync_outbox
+          WHERE entity = '$table' AND local_id = NEW.id AND operation = 'upsert';
+          INSERT INTO sync_outbox (entity, local_id, operation, created_at)
+          VALUES ('$table', NEW.id, 'upsert', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+        END
+      ''');
+      await db.execute('''
+        CREATE TRIGGER IF NOT EXISTS ${table}_sync_update
+        AFTER UPDATE ON $table
+        WHEN COALESCE((SELECT value FROM sync_meta WHERE key = 'applying'), '0') <> '1'
+        BEGIN
+          DELETE FROM sync_outbox
+          WHERE entity = '$table' AND local_id = NEW.id AND operation = 'upsert';
+          INSERT INTO sync_outbox (entity, local_id, operation, created_at)
+          VALUES ('$table', NEW.id, 'upsert', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+        END
+      ''');
+      await db.execute('''
+        CREATE TRIGGER IF NOT EXISTS ${table}_sync_delete
+        AFTER DELETE ON $table
+        WHEN COALESCE((SELECT value FROM sync_meta WHERE key = 'applying'), '0') <> '1'
+        BEGIN
+          DELETE FROM sync_outbox
+          WHERE entity = '$table' AND local_id = OLD.id AND operation = 'upsert';
+          INSERT INTO sync_outbox (entity, local_id, server_id, operation, created_at)
+          VALUES ('$table', OLD.id, OLD.server_id, 'delete', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+        END
+      ''');
+    }
   }
 
   static Future<void> _addColumnIfMissing(

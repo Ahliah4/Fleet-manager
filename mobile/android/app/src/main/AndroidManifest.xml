@@ -26,11 +26,33 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
-            <intent-filter>
+        </activity>
+        <!-- flutter_web_auth_2 must own the browser callback. Registering the
+             same filters on MainActivity prevents the plugin from completing
+             the pending authentication future. -->
+        <activity
+            android:name="com.linusu.flutter_web_auth_2.CallbackActivity"
+            android:exported="true"
+            android:taskAffinity="">
+            <!-- Required for the owner's iPhone-7-era compatibility policy too:
+                 the matching iOS build uses this PKCE-protected custom scheme. -->
+            <intent-filter android:label="fleet_operations_auth">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="fleetops" android:host="auth" />
+            </intent-filter>
+            <!-- HTTPS App Link for verified staging/release hosts. -->
+            <intent-filter
+                android:autoVerify="true"
+                android:label="fleet_operations_https_auth">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="https"
+                    android:host="${appLinkHost}"
+                    android:pathPrefix="/mobile" />
             </intent-filter>
         </activity>
         <!-- Don't delete the meta-data below.

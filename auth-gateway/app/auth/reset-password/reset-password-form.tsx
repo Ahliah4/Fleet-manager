@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, useState } from "react";
-import { authClient } from "@/lib/auth/client";
+import { getAuthClient } from "@/lib/auth/client";
 
 export function ResetPasswordForm({ token }: { token: string }) {
   const [password, setPassword] = useState("");
@@ -17,7 +17,10 @@ export function ResetPasswordForm({ token }: { token: string }) {
     if (!token) return;
     setBusy(true);
     setError(null);
-    const result = await authClient.resetPassword({ newPassword: password, token });
+    const result = await getAuthClient().resetPassword({
+      newPassword: password,
+      token,
+    });
     if (result.error) {
       setError("We could not update the password. Request a new reset link and try again.");
       setBusy(false);

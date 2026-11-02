@@ -1,1 +1,5 @@
 #include "Generated.xcconfig"
+
+// Replace with the HTTPS auth-gateway host before an iOS release build.
+// The matching apple-app-site-association file is served by the gateway.
+APP_LINK_HOST = fleet-staging.invalid

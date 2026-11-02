@@ -1,25 +1,14 @@
 import { bindings, defineConfig } from "cf/config";
 import * as entrypoint from "./src/index.ts" with { type: "cf-worker" };
 
-const hyperdriveId = process.env.FLEET_DEVELOPMENT_HYPERDRIVE_ID;
-// Local-only: never commit this value. Use the Neon development branch with app_rw.
-const hyperdriveLocalConnectionString =
-  process.env.FLEET_DEVELOPMENT_HYPERDRIVE_CONNECTION_STRING;
-
 export default defineConfig({
   worker: {
     name: "ip-motors-fleet-api-development",
     entrypoint,
     compatibilityDate: "2026-10-30",
     env: {
-      HYPERDRIVE: hyperdriveId
-        ? bindings.hyperdrive({
-            id: hyperdriveId,
-            dev: hyperdriveLocalConnectionString
-              ? { connectionString: hyperdriveLocalConnectionString }
-              : undefined,
-          })
-        : undefined,
+      // DATABASE_URL is a Cloudflare Worker secret set during deployment.
+      // It is intentionally absent from this config, source control, and Flutter.
       AUTH_ISSUER: process.env.AUTH_ISSUER
         ? bindings.text(process.env.AUTH_ISSUER)
         : undefined,

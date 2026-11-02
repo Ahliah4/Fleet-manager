@@ -188,6 +188,10 @@ class NeonAuthService {
 
   /// Calls the authenticated identity endpoint; the API derives all app roles
   /// and fleet access from its own database membership records.
+  /// Forces one refresh attempt after an API 401. The browser-gateway
+  /// implementation overrides this; the legacy cookie path cannot refresh.
+  Future<bool> refreshAccessToken() async => false;
+
   Future<Map<String, dynamic>> loadApiSession() async {
     if (!fleetApiUrl.startsWith('https://')) {
       throw const NeonAuthException(

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, useState } from "react";
-import { authClient } from "@/lib/auth/client";
+import { getAuthClient } from "@/lib/auth/client";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
@@ -14,7 +14,7 @@ export default function ForgotPasswordPage() {
     event.preventDefault();
     setBusy(true);
     setError(null);
-    const result = await authClient.requestPasswordReset({
+    const result = await getAuthClient().requestPasswordReset({
       email: email.trim(),
       redirectTo: `${window.location.origin}/auth/reset-password`,
     });

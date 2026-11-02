@@ -16,11 +16,21 @@ allow localhost. Google shared credentials are suitable only for development.
 
 ## Mobile handoff status
 
-The repository now contains the browser-to-mobile PKCE routes and Flutter
+The repository contains the browser-to-mobile PKCE routes and the Flutter
 client. Local development can use `MOBILE_FLOW_STORAGE=memory`, but that store
 is deliberately rejected when `NODE_ENV=production`: a process restart would
-otherwise lose one-time codes and refresh-token revocation state. Before any
-staging or release deployment, replace it with a Cloudflare Durable Object/KV
-adapter, configure an HTTPS App Link / iOS Universal Link, and publish the
-gateway JWKS URL to the Fastify verifier. Never send a Neon browser cookie to
+otherwise lose one-time codes and refresh-token revocation state.
+
+For Cloudflare staging and release, `cloudflare.config.ts` sets
+`MOBILE_FLOW_STORAGE=durable-object` and binds the SQLite-backed
+`MobileAuthFlowStore`. One object is used per authorization code or refresh
+family, so refresh rotation and replacement insertion are one serialized
+transaction. The store keeps only SHA-256 hashes; replaying a rotated token
+revokes the complete family. It does not require an additional Neon table or
+database credential. Run `npm test` for the flow, replay, rotation, revocation,
+and fail-closed checks.
+
+Before a release build, configure an HTTPS App Link / iOS Universal Link,
+publish the gateway JWKS URL to the Fastify verifier, and keep the custom
+`fleetops://` callback for development only. Never send a Neon browser cookie to
 Flutter.

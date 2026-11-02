@@ -12,18 +12,32 @@ signing secrets into chat or source control.
 - Fastify API has tenant isolation, role checks, audit logging, RLS context,
   JWKS verification, and 67 passing tests.
 - The Cloudflare Worker has a separate 10-test route/runtime suite.
-- The browser auth gateway builds and type-checks, and contains a local PKCE
-  handoff implementation.
+- The browser auth gateway builds, type-checks, and has 12 passing tests for
+  code exchange, replay, wrong verifier, refresh rotation, family revocation,
+  sign-out revocation, and fail-closed production storage.
+- The gateway now has a Cloudflare SQLite Durable Object code/refresh-token
+  store. It stores only SHA-256 hashes, rotates refresh tokens atomically,
+  records a token family ID, and revokes the family when a rotated token is
+  replayed. The in-memory adapter is rejected when `NODE_ENV=production`.
 - The development Worker now has vehicle, driver, hire, finance, and
   owner/admin invitation route coverage with RLS context and audit writes.
-- Flutter analysis is clean and 24 tests pass.
+- Flutter analysis is clean and 27 tests pass, including queue durability,
+  server-ID uniqueness, and delete tombstones.
+- Flutter now has a typed fleet API client, a durable SQLite outbox, server-ID
+  mappings, conflict recording, one safe 401 refresh, no retry on 403, and a
+  Settings sync/import-preview surface.
 - The old direct Flutter-to-Neon cookie flow is disabled unless an explicit
   development-only flag is supplied.
 - `backend/migrations/0004_membership_invitations.sql` is applied on Neon
   `development`; owner bootstrap has been verified.
+- Android has an INTERNET permission, an HTTPS App Link intent filter, and a
+  manifest host placeholder. iOS has the Associated Domains entitlement and a
+  configurable App Link host. The gateway serves both verification files when
+  their environment variables are configured.
 
-The phone app is therefore usable offline, but it is not yet a shared live
-workspace. Two phones currently have separate local copies.
+The phone app is therefore usable offline and has a shared-data client, but it
+is not yet a verified live workspace. Two physical phones have not completed a
+two-device sync test, and no staging deployment has been made.
 
 ## Finish order
 
@@ -73,32 +87,53 @@ Flutter -> gateway /mobile/exchange
 Flutter -> Fastify Authorization: Bearer <verified short-lived token>
 ```
 
-The gateway's browser flow includes supported password recovery pages. It still
-needs a durable single-use code/refresh-token store (the current in-memory
-adapter is local-only), HTTPS Android/iOS app-link configuration, and a
-generated gateway EdDSA key pair before a release build can enable shared
-sign-in. Do not revive the disabled cookie-replay client.
+The gateway's browser flow includes supported password recovery pages. Its
+durable store is a Cloudflare SQLite Durable Object and is enabled by the
+gateway's Cloudflare configuration; it does not need another Neon migration or
+database credential:
 
-For the Worker, keep the Hyperdrive binding pointed at the `development`
-branch using `app_rw`. Local development may use the ignored variable
-`FLEET_DEVELOPMENT_HYPERDRIVE_CONNECTION_STRING`; production/staging stores
-the connection in Cloudflare, not in the repository or Flutter.
+1. Deploy the gateway with its `MobileAuthFlowStore` Durable Object binding.
+2. Generate the gateway EdDSA key pair and set the issuer, audience, private
+   JWK, and public JWK. Publish the JWKS URL to Fastify.
+3. Set the exact `MOBILE_REDIRECT_URIS`, `IOS_APP_TEAM_ID`, `IOS_BUNDLE_ID`,
+   `ANDROID_APP_PACKAGE`, and `ANDROID_SHA256_CERT_FINGERPRINTS` values. The
+   gateway returns 404 for an unconfigured association file rather than
+   publishing a partial one.
 
-### 4. Apply the membership migration only after review
+The custom `fleetops://` scheme remains the browser-session callback for iOS
+15. The official `flutter_web_auth_2` HTTPS callback support requires iOS 17.4
+or newer, so removing the custom scheme would break the owner's iPhone 7 Plus.
+The callback is still bound to a random PKCE verifier and state, uses a
+60-second single-use code, and never returns the Neon browser cookie to
+Flutter. The HTTPS App Link/Universal Link remains the verified deep-link and
+fallback route for supported systems. Do not revive the disabled cookie-replay
+client.
 
-An operator must review and apply `backend/migrations/0004_membership_invitations.sql`
-to Neon `development` only. It creates owner/admin-controlled invitations and
-a narrowly scoped acceptance function. It does not grant roles from public
-signup and it cannot assign Fleet Owner or Super Admin through an invitation.
+The deployed development Worker uses Neon's supported serverless WebSocket
+driver. Its `app_rw` development connection is stored as the `DATABASE_URL`
+Cloudflare Worker secret; it is never stored in Flutter or the repository.
+The Hyperdrive binding was deliberately removed from this deployment after
+Cloudflare rejected a valid configuration during binding generation. Do not
+point the Worker at production while that support issue remains unresolved.
+
+### 4. Membership migration and initial owner
+
+`backend/migrations/0004_membership_invitations.sql` is already applied to Neon
+`development`, and the initial Fleet Owner bootstrap has succeeded. Do not run
+either operation again as part of staging deployment. The migration creates
+owner/admin-controlled invitations and a narrowly scoped acceptance function.
+It does not grant roles from public signup and it cannot assign Fleet Owner or
+Super Admin through an invitation.
 
 The initial Fleet Owner is a separate controlled bootstrap action. Choose the
 person who legally controls the fleet; do not let the first public signup
 become owner automatically. After bootstrap, that owner invites administrators,
 managers, finance users, and read-only users from the app.
 
-The repository now includes an operator-only bootstrap command. Run it from
-`backend/` only after reviewing the target shown by the migration status
-command; keep all values in your private terminal:
+The repository keeps the operator-only commands below for disaster recovery
+and a future clean environment. They are historical reference, not remaining
+launch steps. Run them only against an explicitly confirmed non-production
+target and keep all values in your private terminal:
 
 ```text
 npm run migrate -- --status
@@ -129,8 +164,17 @@ the shared source of truth:
 - Deletes remain soft deletes and require the existing permission checks.
 - Export a backup before the first import; restore replaces local records.
 
-The current Flutter screens do not yet implement this sync queue. It must be
-implemented and tested before claiming that two phones share live data.
+The Flutter queue and server-ID mapping now exist. Each local write is captured
+by SQLite triggers into `sync_outbox`; the sync service pushes drivers and
+vehicles first, then hires and finance records, and never overwrites a local
+row with an unsynced edit. A 401 attempts one refresh then signs out, a 403 is
+never retried, and transient failures back off. The settings screen shows the
+queue, conflict count, last sync, and a vehicle-import dry run.
+
+The real 65-record import is still deliberately blocked. Run the dry run,
+review new/matched/conflict/invalid counts, take a backup, and obtain explicit
+owner approval before any import that writes to Neon. Server-side deletion
+tombstones are not pulled yet; local deletes are pushed.
 
 ### 6. Validate staging
 
@@ -176,10 +220,11 @@ Before distributing an iOS build:
 2. Build and sign the IPA on macOS using a current supported Xcode version.
    Linux can analyze and test the Flutter code, but cannot create the signed iOS
    release archive.
-3. Add the gateway HTTPS domain to the Associated Domains entitlement and host
-   a matching `apple-app-site-association` file. The release auth callback must
-   use that verified Universal Link, not the local `fleetops://` development
-   scheme.
+3. Set `APP_LINK_HOST` in the iOS xcconfig and Gradle (`-PAPP_LINK_HOST=...`)
+   to the HTTPS gateway host, and host matching
+   `apple-app-site-association`/`assetlinks.json` files. Keep the PKCE-protected
+   custom callback in the release build because the iPhone 7 Plus is limited
+   to iOS 15; HTTPS auth callbacks are available only on iOS 17.4 and newer.
 4. Test sign-in, callback return, secure session restore, sign-out, offline data,
    backup/restore, document alerts, keyboard forms, and text scaling on both
    physical phones.
@@ -187,9 +232,20 @@ Before distributing an iOS build:
 
 ## Remaining release blockers
 
-The code is validated, but a safe shared release still needs durable gateway
-mobile-session storage, Android App Links and iOS Universal Links, Apple release
-signing, gateway EdDSA key/JWKS configuration, the Flutter initial import/sync
-contract, and staging verification. Until
-these are completed, the APK should remain local-first and the Worker should
-not be deployed as the shared API.
+The code is substantially implemented, but a safe shared release still needs:
+
+- A staging deployment. There is no Cloudflare CLI/account session in this
+  workspace, so no Worker or gateway deployment was made.
+- Cloudflare authentication in the deployment terminal, followed by staging
+  deployment of the gateway and API Worker. Durable auth storage and EdDSA
+  keys exist locally, but the deployed issuer/JWKS/API URLs must be updated to
+  the final HTTPS staging addresses.
+- The permanent Apple bundle ID/team and the release App Link host. The current
+  `com.example.mobile` and `fleet-staging.invalid` values are placeholders.
+- A macOS/Xcode signed archive and TestFlight upload.
+- Two physical phones signed in at the same time, with shared roles, one fleet,
+  offline edits, conflict review, backup/restore, and sign-out verified.
+- Explicit owner approval for the real 65-record import.
+
+Until those are complete, the APK remains a local-first/staging client, not a
+public release.

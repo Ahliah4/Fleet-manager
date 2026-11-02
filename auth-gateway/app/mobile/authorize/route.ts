@@ -17,7 +17,7 @@ export async function GET(request: Request): Promise<Response> {
       signIn.searchParams.set("returnTo", "/mobile/authorize");
       return NextResponse.redirect(signIn);
     }
-    const code = issueCode({
+    const code = await issueCode({
       challenge: flow.challenge,
       subject: session.user.id,
       email: session.user.email,

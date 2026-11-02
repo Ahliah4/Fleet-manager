@@ -40,7 +40,7 @@ dependencies:
   share_plus: ^13.3.1
   file_picker: ^13.2.0
   crypto: ^3.0.6
-  flutter_web_auth_2: ^4.1.0
+  flutter_web_auth_2: ^5.1.0
 
 dev_dependencies:
   flutter_test:
@@ -52,6 +52,7 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+  sqflite_common_ffi: ^2.4.5
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

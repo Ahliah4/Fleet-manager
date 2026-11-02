@@ -181,6 +181,19 @@ class GatewayAuthService extends NeonAuthService {
   }
 
   @override
+  Future<bool> refreshAccessToken() async {
+    final refresh = await storage.read(key: _refreshKey);
+    if (refresh == null || refresh.isEmpty) return false;
+    try {
+      await _refresh(refresh);
+      return true;
+    } on NeonAuthException {
+      await signOutLocal();
+      return false;
+    }
+  }
+
+  @override
   Future<void> signOut() async {
     final refresh = await storage.read(key: _refreshKey);
     if (refresh != null && refresh.isNotEmpty) {

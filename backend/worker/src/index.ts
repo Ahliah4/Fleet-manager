@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import type { Context, Next } from "hono";
-import { Client } from "pg";
+import { Pool } from "@neondatabase/serverless";
 import { createTokenVerifier, type TokenVerifier } from "../../src/auth/jwtVerifier.js";
 import { isFleetRole, normalizeFleetPolicy, permissionsForRole } from "../../src/domain/permissions.js";
 import type { FleetSession, Session } from "../../src/domain/session.js";
@@ -30,7 +30,7 @@ import {
 } from "../../src/routes/schemas.js";
 
 interface Env {
-  HYPERDRIVE?: Hyperdrive;
+  DATABASE_URL?: string;
   AUTH_ISSUER?: string;
   AUTH_AUDIENCE?: string;
   AUTH_JWKS_URL?: string;
@@ -39,8 +39,9 @@ interface Env {
   CORS_ORIGIN?: string;
 }
 
-interface Hyperdrive {
-  connectionString: string;
+interface WorkerDbClient {
+  query<T>(sql: string, values?: unknown[]): Promise<{ rows: T[]; rowCount?: number | null }>;
+  release(): void;
 }
 
 interface ErrorResponse {
@@ -187,11 +188,12 @@ app.get("/readyz", async (context) => {
   let databaseConnected = false;
   let schemaReady = false;
   let databaseRoleSafe = false;
-  if (context.env.HYPERDRIVE?.connectionString) {
-    const client = new Client({ connectionString: context.env.HYPERDRIVE.connectionString });
+  if (context.env.DATABASE_URL) {
+    let database: Awaited<ReturnType<typeof openDatabase>> | undefined;
     let failureStage: "connect" | "readiness_query" = "connect";
     try {
-      await client.connect();
+      database = await openDatabase(context.env);
+      const client = database.client;
       databaseConnected = true;
       failureStage = "readiness_query";
       const result = await client.query<{
@@ -227,7 +229,7 @@ app.get("/readyz", async (context) => {
         errorType: error instanceof Error ? error.name : "UnknownError",
       }));
     } finally {
-      await client.end().catch(() => undefined);
+      await database?.close().catch(() => undefined);
     }
   }
 
@@ -976,7 +978,7 @@ async function resolveSession(env: Env, subject: string): Promise<Session | null
   });
 }
 
-async function withFleetContext<T>(env: Env, session: FleetSession, work: (client: Client) => Promise<T>): Promise<T> {
+async function withFleetContext<T>(env: Env, session: FleetSession, work: (client: WorkerDbClient) => Promise<T>): Promise<T> {
   return withTransaction(env, async (client) => {
     const membership = session.membership;
     if (!membership) throw new Error("Fleet membership required");
@@ -988,17 +990,16 @@ async function withFleetContext<T>(env: Env, session: FleetSession, work: (clien
   });
 }
 
-async function withUserContext<T>(env: Env, session: Session, work: (client: Client) => Promise<T>): Promise<T> {
+async function withUserContext<T>(env: Env, session: Session, work: (client: WorkerDbClient) => Promise<T>): Promise<T> {
   return withTransaction(env, async (client) => {
     await client.query("SELECT set_config('app.user_id', $1, true)", [session.user.id]);
     return work(client);
   });
 }
 
-async function withTransaction<T>(env: Env, work: (client: Client) => Promise<T>): Promise<T> {
-  if (!env.HYPERDRIVE?.connectionString) throw new Error("Database binding is not configured");
-  const client = new Client({ connectionString: env.HYPERDRIVE.connectionString });
-  await client.connect();
+async function withTransaction<T>(env: Env, work: (client: WorkerDbClient) => Promise<T>): Promise<T> {
+  const database = await openDatabase(env);
+  const client = database.client;
   try {
     await client.query("BEGIN");
     await client.query("SELECT set_config('statement_timeout', '5s', true), set_config('idle_in_transaction_session_timeout', '10s', true), set_config('TimeZone', 'UTC', true)");
@@ -1009,12 +1010,30 @@ async function withTransaction<T>(env: Env, work: (client: Client) => Promise<T>
     await client.query("ROLLBACK").catch(() => undefined);
     throw error;
   } finally {
-    await client.end();
+    await database.close();
   }
 }
 
+async function openDatabase(env: Env): Promise<{
+  client: WorkerDbClient;
+  close: () => Promise<void>;
+}> {
+  if (!env.DATABASE_URL) throw new Error("Database connection is not configured");
+  // Neon requires a fresh WebSocket pool for each Worker request. This preserves
+  // the transaction-scoped RLS context while avoiding cross-request sessions.
+  const pool = new Pool({ connectionString: env.DATABASE_URL });
+  const client = await pool.connect();
+  return {
+    client,
+    close: async () => {
+      client.release();
+      await pool.end();
+    },
+  };
+}
+
 async function writeWorkerAudit(
-  client: Client,
+  client: WorkerDbClient,
   session: Session,
   action: string,
   targetType: string,
@@ -1030,7 +1049,7 @@ async function writeWorkerAudit(
   );
 }
 
-async function getWorkerHire(client: Client, fleetId: string, hireId: string): Promise<WorkerHire | null> {
+async function getWorkerHire(client: WorkerDbClient, fleetId: string, hireId: string): Promise<WorkerHire | null> {
   const result = await client.query<WorkerHire>(
     `SELECT h.id, h.vehicle_id AS "vehicleId", v.registration_number AS "vehicleRegistration", h.driver_id AS "driverId", d.full_name AS "driverName", h.status, h.starts_at AS "startsAt", h.expected_end_at AS "expectedEndAt", h.actual_end_at AS "actualEndAt", h.notes, h.created_at AS "createdAt", h.updated_at AS "updatedAt"
      FROM hires h
@@ -1042,7 +1061,7 @@ async function getWorkerHire(client: Client, fleetId: string, hireId: string): P
   return result.rows[0] ?? null;
 }
 
-async function getWorkerExpense(client: Client, fleetId: string, expenseId: string): Promise<WorkerExpense | null> {
+async function getWorkerExpense(client: WorkerDbClient, fleetId: string, expenseId: string): Promise<WorkerExpense | null> {
   const result = await client.query<WorkerExpense>(
     `SELECT e.id, e.entry_date AS "entryDate", e.vehicle_id AS "vehicleId", v.registration_number AS "vehicleRegistration", trim(concat_ws(' ', v.make, v.model)) AS "vehicleName", e.category, e.description, e.amount::text AS amount, e.currency, e.supplier, e.payment_method AS "paymentMethod", e.notes, e.status, e.void_reason AS "voidReason", e.voided_at AS "voidedAt", e.created_at AS "createdAt", e.updated_at AS "updatedAt"
      FROM expenses e
@@ -1053,7 +1072,7 @@ async function getWorkerExpense(client: Client, fleetId: string, expenseId: stri
   return result.rows[0] ?? null;
 }
 
-async function getWorkerIncome(client: Client, fleetId: string, incomeId: string): Promise<WorkerIncome | null> {
+async function getWorkerIncome(client: WorkerDbClient, fleetId: string, incomeId: string): Promise<WorkerIncome | null> {
   const result = await client.query<WorkerIncome>(
     `SELECT i.id, i.entry_date AS "entryDate", i.description, i.amount::text AS amount, i.currency, i.vehicle_id AS "vehicleId", v.registration_number AS "vehicleRegistration", trim(concat_ws(' ', v.make, v.model)) AS "vehicleName", i.driver_id AS "driverId", d.full_name AS "driverName", i.payment_method AS "paymentMethod", i.reference, i.notes, i.status, i.void_reason AS "voidReason", i.voided_at AS "voidedAt", i.created_at AS "createdAt", i.updated_at AS "updatedAt"
      FROM income_entries i
@@ -1065,7 +1084,7 @@ async function getWorkerIncome(client: Client, fleetId: string, incomeId: string
   return result.rows[0] ?? null;
 }
 
-async function getWorkerRemittance(client: Client, fleetId: string, remittanceId: string): Promise<WorkerRemittance | null> {
+async function getWorkerRemittance(client: WorkerDbClient, fleetId: string, remittanceId: string): Promise<WorkerRemittance | null> {
   const result = await client.query<WorkerRemittance>(
     `SELECT r.id, r.entry_date AS "entryDate", r.driver_id AS "driverId", d.full_name AS "driverName", r.vehicle_id AS "vehicleId", v.registration_number AS "vehicleRegistration", trim(concat_ws(' ', v.make, v.model)) AS "vehicleName", r.period_start AS "periodStart", r.period_end AS "periodEnd", r.amount::text AS amount, r.currency, r.payment_method AS "paymentMethod", r.reference, r.notes, r.status, r.void_reason AS "voidReason", r.voided_at AS "voidedAt", r.created_at AS "createdAt", r.updated_at AS "updatedAt"
      FROM remittances r
@@ -1077,7 +1096,7 @@ async function getWorkerRemittance(client: Client, fleetId: string, remittanceId
   return result.rows[0] ?? null;
 }
 
-async function getWorkerVehicle(client: Client, fleetId: string, vehicleId: string, includeDeleted: boolean): Promise<VehicleRecord | null> {
+async function getWorkerVehicle(client: WorkerDbClient, fleetId: string, vehicleId: string, includeDeleted: boolean): Promise<VehicleRecord | null> {
   const result = await client.query<VehicleRecord>(
     `SELECT id, registration_number AS "registrationNumber", make, model, year, colour, notes, insurance_expiry AS "insuranceExpiry", road_tax_expiry AS "roadTaxExpiry", roadworthy_expiry AS "roadworthyExpiry", next_service_date AS "nextServiceDate", created_at AS "createdAt", updated_at AS "updatedAt"
      FROM vehicles WHERE id = $1 AND fleet_id = $2 ${includeDeleted ? "" : "AND deleted_at IS NULL"}`,

@@ -3,10 +3,13 @@ import { exportJWK, generateKeyPair, SignJWT } from "jose";
 
 const database = vi.hoisted(() => ({ query: vi.fn(), connect: vi.fn(), end: vi.fn() }));
 
-vi.mock("pg", () => ({
-  Client: class MockClient {
-    connect() { return database.connect(); }
+vi.mock("@neondatabase/serverless", () => ({
+  Pool: class MockPool {
     query(sql: string, values?: unknown[]) { return database.query(sql, values); }
+    async connect() {
+      await database.connect();
+      return { query: this.query.bind(this), release: () => undefined };
+    }
     end() { return database.end(); }
   },
 }));
@@ -108,7 +111,7 @@ const authEnv = {
   AUTH_ISSUER: issuer,
   AUTH_AUDIENCE: audience,
   AUTH_JWKS_URL: jwksUrl,
-  HYPERDRIVE: { connectionString: "mocked-test-binding" },
+  DATABASE_URL: "postgresql://test:test@example.neon.tech/neondb?sslmode=require",
 };
 
 describe("Fleet API Worker auth and tenant boundary", () => {

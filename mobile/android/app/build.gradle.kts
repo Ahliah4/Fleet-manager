@@ -27,6 +27,12 @@ android {
         // flag during build.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        // Set with -PAPP_LINK_HOST=... (or the APP_LINK_HOST environment
+        // variable) to the HTTPS auth-gateway host before a release build.
+        manifestPlaceholders["appLinkHost"] =
+            (project.findProperty("APP_LINK_HOST") as String?)
+                ?: System.getenv("APP_LINK_HOST")
+                ?: "fleet-staging.invalid"
     }
 
     buildTypes {

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'data/fleet_database.dart';
+import 'data/fleet_sync_service.dart';
 import 'data/gateway_auth_service.dart';
 import 'data/neon_auth_service.dart';
 import 'models/app_role.dart';
@@ -67,6 +68,7 @@ class _AuthGateState extends State<_AuthGate> {
   @override
   void initState() {
     super.initState();
+    FleetSyncService.instance.configure(_auth);
     _restore();
   }
 

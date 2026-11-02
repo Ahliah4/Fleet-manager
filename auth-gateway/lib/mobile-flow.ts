@@ -1,10 +1,15 @@
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import {
   importJWK,
   jwtVerify,
   SignJWT,
   type JWK,
 } from "jose";
+import {
+  createMemoryMobileFlowStore,
+  type MobileFlowStore,
+  type RefreshToken,
+} from "./mobile-store";
 
 const FLOW_COOKIE = "fleet_mobile_flow";
 const FLOW_TTL_SECONDS = 10 * 60;
@@ -12,13 +17,46 @@ const CODE_TTL_MS = 60_000;
 const ACCESS_TTL_SECONDS = 10 * 60;
 const REFRESH_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
-export function assertMobileFlowStorageConfigured(): void {
-  // The maps below are intentionally useful for local development only. A
-  // restart would otherwise invalidate codes and lose refresh-token revocation
-  // state, so production fails closed until a durable store is wired in.
-  if (process.env.NODE_ENV === "production") {
+let testStore: MobileFlowStore | null = null;
+let configuredStore: MobileFlowStore | null = null;
+
+/**
+ * Production must use durable storage. The in-memory store is only for local
+ * development and tests; a process restart would lose codes and revoke state.
+ */
+export function assertMobileFlowStorageConfigured(
+  nodeEnv = process.env.NODE_ENV,
+  storageMode = process.env.MOBILE_FLOW_STORAGE,
+): void {
+  if (nodeEnv !== "production") return;
+  if (storageMode !== "durable-object") {
     throw new Error("Mobile authentication storage is not configured.");
   }
+}
+
+export function setMobileFlowStoreForTests(store: MobileFlowStore | null): void {
+  testStore = store;
+  configuredStore = null;
+}
+
+async function getStore(): Promise<MobileFlowStore> {
+  if (testStore) return testStore;
+  if (configuredStore) return configuredStore;
+
+  assertMobileFlowStorageConfigured();
+  const mode = process.env.MOBILE_FLOW_STORAGE ?? "memory";
+  if (mode === "durable-object") {
+    const { createCloudflareMobileFlowStore } = await import(
+      "./mobile-store-cloudflare"
+    );
+    configuredStore = createCloudflareMobileFlowStore();
+    return configuredStore;
+  }
+  if (mode !== "memory") {
+    throw new Error("Mobile authentication storage is not configured.");
+  }
+  configuredStore = createMemoryMobileFlowStore();
+  return configuredStore;
 }
 
 type FlowClaims = {
@@ -27,26 +65,6 @@ type FlowClaims = {
   redirectUri: string;
   authPath: "/auth/sign-in" | "/auth/sign-up";
 };
-
-type CodeRecord = {
-  challenge: string;
-  subject: string;
-  email: string;
-  name: string;
-  expiresAt: number;
-  used: boolean;
-};
-
-type RefreshRecord = {
-  subject: string;
-  email: string;
-  name: string;
-  expiresAt: number;
-  revoked: boolean;
-};
-
-const codes = new Map<string, CodeRecord>();
-const refreshTokens = new Map<string, RefreshRecord>();
 
 function secret(): Uint8Array {
   const value = process.env.NEON_AUTH_COOKIE_SECRET;
@@ -104,10 +122,39 @@ function hash(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
-export function issueCode(input: Omit<CodeRecord, "expiresAt" | "used">): string {
+function newRefreshToken(familyId: string): string {
+  return `${familyId}.${randomToken()}`;
+}
+
+function refreshFamily(value: string): string | null {
+  const separator = value.indexOf(".");
+  if (separator < 1 || separator > 128 || separator === value.length - 1) {
+    return null;
+  }
+  const familyId = value.slice(0, separator);
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    familyId,
+  )
+    ? familyId
+    : null;
+}
+
+export async function issueCode(input: {
+  challenge: string;
+  subject: string;
+  email: string;
+  name: string;
+}): Promise<string> {
   assertMobileFlowStorageConfigured();
   const code = randomToken();
-  codes.set(hash(code), { ...input, expiresAt: Date.now() + CODE_TTL_MS, used: false });
+  await (await getStore()).insertCode({
+    codeHash: hash(code),
+    challenge: input.challenge,
+    subject: input.subject,
+    email: input.email,
+    name: input.name,
+    expiresAt: Date.now() + CODE_TTL_MS,
+  });
   return code;
 }
 
@@ -116,32 +163,35 @@ export async function exchangeCode(input: {
   verifier: string;
 }): Promise<{ accessToken: string; refreshToken: string; expiresIn: number }> {
   assertMobileFlowStorageConfigured();
-  const key = hash(input.code);
-  const record = codes.get(key);
-  if (!record || record.used || record.expiresAt <= Date.now()) {
-    codes.delete(key);
-    throw new Error("The mobile sign-in code is invalid or expired.");
-  }
   const digest = await crypto.subtle.digest(
     "SHA-256",
     new TextEncoder().encode(input.verifier),
   );
   const verifierChallenge = Buffer.from(digest).toString("base64url");
-  if (verifierChallenge !== record.challenge) {
-    throw new Error("The mobile sign-in verification failed.");
+  const now = Date.now();
+  const consumed = await (await getStore()).consumeCode(
+    hash(input.code),
+    verifierChallenge,
+    now,
+  );
+  if (!consumed) {
+    throw new Error("The mobile sign-in code is invalid or expired.");
   }
-  record.used = true;
-  codes.delete(key);
-  const refreshToken = randomToken();
-  refreshTokens.set(hash(refreshToken), {
-    subject: record.subject,
-    email: record.email,
-    name: record.name,
-    expiresAt: Date.now() + REFRESH_TTL_MS,
-    revoked: false,
-  });
+
+  const familyId = randomUUID();
+  const refreshToken = newRefreshToken(familyId);
+  const record: RefreshToken = {
+    tokenHash: hash(refreshToken),
+    familyId,
+    subject: consumed.subject,
+    email: consumed.email,
+    name: consumed.name,
+    expiresAt: now + REFRESH_TTL_MS,
+  };
+  await (await getStore()).insertRefreshToken(record);
+
   return {
-    accessToken: await mintAccessToken(record.subject),
+    accessToken: await mintAccessToken(consumed.subject),
     refreshToken,
     expiresIn: ACCESS_TTL_SECONDS,
   };
@@ -153,26 +203,41 @@ export async function rotateRefreshToken(value: string): Promise<{
   expiresIn: number;
 }> {
   assertMobileFlowStorageConfigured();
-  const key = hash(value);
-  const record = refreshTokens.get(key);
-  if (!record || record.revoked || record.expiresAt <= Date.now()) {
-    refreshTokens.delete(key);
+  const now = Date.now();
+  const familyId = refreshFamily(value);
+  if (!familyId) throw new Error("The refresh session has expired.");
+  const refreshToken = newRefreshToken(familyId);
+  const result = await (await getStore()).rotateRefreshToken(
+    hash(value),
+    familyId,
+    { tokenHash: hash(refreshToken), expiresAt: now + REFRESH_TTL_MS },
+    now,
+  );
+
+  if (result.status === "reused") {
+    throw new Error("The refresh session is no longer valid.");
+  }
+  if (result.status !== "rotated") {
     throw new Error("The refresh session has expired.");
   }
-  record.revoked = true;
-  const refreshToken = randomToken();
-  refreshTokens.set(hash(refreshToken), { ...record, revoked: false });
+
   return {
-    accessToken: await mintAccessToken(record.subject),
+    accessToken: await mintAccessToken(result.token.subject),
     refreshToken,
     expiresIn: ACCESS_TTL_SECONDS,
   };
 }
 
-export function revokeRefreshToken(value: string): void {
+export async function revokeRefreshToken(value: string): Promise<void> {
   assertMobileFlowStorageConfigured();
-  const record = refreshTokens.get(hash(value));
-  if (record) record.revoked = true;
+  const familyId = refreshFamily(value);
+  if (!familyId) return;
+  await (await getStore()).revokeRefreshToken(hash(value), familyId, Date.now());
+}
+
+export async function cleanupExpiredMobileFlowState(): Promise<void> {
+  assertMobileFlowStorageConfigured();
+  await (await getStore()).cleanup(Date.now());
 }
 
 async function gatewaySigningKey() {
