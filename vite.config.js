@@ -1,6 +1,7 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
+import { cloudflare } from "@cloudflare/vite-plugin";
 
 /**
  * Vite restarts when vite.config.js or postcss.config.js change, but not when
@@ -87,5 +88,6 @@ export default defineConfig({
         ],
       },
     }),
+    cloudflare(),
   ],
 });

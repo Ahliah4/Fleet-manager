@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "deploy": "cf deploy",
     "lint": "oxlint",
     "test": "vitest run",
     "preview": "vite preview"
@@ -22,8 +23,10 @@
   "devDependencies": {
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
+    "@cloudflare/vite-plugin": "2.0.0-beta.v.8",
     "@vitejs/plugin-react": "^6.0.4",
     "autoprefixer": "^10.5.4",
+    "cf": "1.0.0-beta.26",
     "oxlint": "^1.75.0",
     "postcss": "^8.5.25",
     "tailwindcss": "^3.4.10",
