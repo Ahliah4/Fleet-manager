@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import {
-    Activity, ArrowDownRight, ArrowUpRight, CarFront, Check, ChevronRight,
+    Activity, ArrowDownRight, ArrowUpRight, BarChart3, CalendarDays, CarFront, Check, ChevronRight,
     CircleDollarSign, Download, FileText, LayoutDashboard, LogIn, LogOut, Menu, Plus,
     Search, Settings, ShieldAlert, Trash2, Users, Wrench, X,
 } from "lucide-react";
@@ -14,13 +14,15 @@ const NAV = [
     { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, permissions: [] },
     { id: "vehicles", label: "Vehicles", icon: CarFront, permissions: ["fleet.vehicles.read", "finance.context.read"] },
     { id: "drivers", label: "Drivers", icon: Users, permissions: ["fleet.operations.read", "finance.context.read"] },
+    { id: "hires", label: "Hires", icon: CalendarDays, permissions: ["fleet.operations.read"] },
     { id: "maintenance", label: "Maintenance & expenses", icon: Wrench, permissions: ["finance.expenses.read"] },
     { id: "finance", label: "Income & remittances", icon: CircleDollarSign, permissions: ["finance.income.read", "finance.remittances.read"] },
+    { id: "reports", label: "Reports", icon: BarChart3, permissions: ["fleet.operations.read", "finance.expenses.read", "finance.income.read", "finance.remittances.read"] },
     { id: "backup", label: "Backup & settings", icon: Settings, permissions: [] },
 ];
 
 const CATEGORIES = ["Parts", "Engine oil & fluids", "Tyres", "Repairs", "Service", "Inspection", "Other"];
-const EMPTY = { vehicles: [], drivers: [], expenses: [], income: [], remittances: [] };
+const EMPTY = { vehicles: [], drivers: [], hires: [], expenses: [], income: [], remittances: [] };
 
 function formatMoney(value) {
     return new Intl.NumberFormat("en-ZM", { style: "currency", currency: "ZMW", maximumFractionDigits: 2 }).format(Number(value) || 0);
@@ -207,7 +209,7 @@ function App() {
                     <div className="flex items-center gap-2"><span className="hidden text-right text-xs text-ink/60 sm:block"><strong className="block text-ink">{me?.user?.displayName || me?.user?.email || "Fleet user"}</strong>{roleLabel(me?.membership?.role)}</span><button type="button" onClick={signOut} className="grid h-10 w-10 place-items-center rounded-full bg-ink text-white" aria-label="Sign out"><LogOut size={17} /></button></div>
                 </header>
 
-                {["vehicles", "drivers", "maintenance", "finance"].includes(page) && <div className="border-b border-stone/70 bg-white px-4 py-2 md:hidden"><label className="relative block"><span className="sr-only">Search {title.toLowerCase()}</span><Search size={17} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink/45" /><input className="min-h-10 w-full rounded-xl border border-stone/70 bg-canvas pl-10 pr-3 text-sm text-ink outline-none placeholder:text-ink/45 focus:border-ink" placeholder="Search by vehicle, driver, or item…" value={search} onChange={(event) => setSearch(event.target.value)} /></label></div>}
+                {["vehicles", "drivers", "hires", "maintenance", "finance"].includes(page) && <div className="border-b border-stone/70 bg-white px-4 py-2 md:hidden"><label className="relative block"><span className="sr-only">Search {title.toLowerCase()}</span><Search size={17} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink/45" /><input className="min-h-10 w-full rounded-xl border border-stone/70 bg-canvas pl-10 pr-3 text-sm text-ink outline-none placeholder:text-ink/45 focus:border-ink" placeholder="Search by vehicle, driver, or item…" value={search} onChange={(event) => setSearch(event.target.value)} /></label></div>}
 
                 <main id="main-content" className="mx-auto w-full max-w-[1440px] space-y-5 p-4 pb-[calc(6rem+env(safe-area-inset-bottom))] sm:p-6 sm:pb-28 lg:p-8">
                     {error && <div role="alert" className="flex items-start justify-between gap-3 rounded-xl border border-brand-500/30 bg-white px-4 py-3 text-sm text-ink"><p>{error}</p><button type="button" aria-label="Dismiss error" onClick={() => setError("")}><X size={17} /></button></div>}
@@ -216,15 +218,17 @@ function App() {
                             {page === "dashboard" && <Dashboard data={data} go={setPage} permissions={permissions} />}
                             {page === "vehicles" && <Vehicles data={data} query={search} openForm={(record) => openForm("vehicle", record)} remove={(record) => remove("vehicles", record, `${record.make} ${record.model}`)} />}
                             {page === "drivers" && <Drivers data={data} query={search} openForm={(record) => openForm("driver", record)} remove={(record) => remove("drivers", record, record.name)} />}
+                            {page === "hires" && <Hires data={data} query={search} openForm={(record) => openForm("hire", record)} canManage={permissions.has("fleet.operations.manage")} persist={persist} />}
                             {page === "maintenance" && <Maintenance data={data} query={search} openForm={() => openForm("expense")} />}
                             {page === "finance" && <Finance data={data} query={search} openForm={openForm} />}
+                            {page === "reports" && <Reports data={data} permissions={permissions} />}
                             {page === "backup" && <Backup data={data} setError={setError} setMessage={setMessage} onImported={refresh} />}
                         </>
                 </main>
             </div>
 
             <nav aria-label="Quick navigation" className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-stone/80 bg-white/95 pb-[env(safe-area-inset-bottom)] pt-1 backdrop-blur lg:hidden">
-                {visibleNav.filter((item) => item.id !== "drivers").slice(0, 5).map(({ id, label, icon: Icon }) => (
+                {visibleNav.filter((item) => ["dashboard", "vehicles", "hires", "reports", "backup"].includes(item.id)).slice(0, 5).map(({ id, label, icon: Icon }) => (
                     <button key={id} type="button" onClick={() => { setPage(id); setSearch(""); setError(""); setMessage(""); }} className={`flex min-h-14 flex-col items-center justify-center gap-1 text-[10px] font-medium ${page === id ? "text-brand-700" : "text-ink/55"}`}><Icon size={19} /><span>{id === "maintenance" ? "Costs" : id === "finance" ? "Finance" : id === "backup" ? "More" : label}</span></button>
                 ))}
             </nav>
@@ -274,7 +278,7 @@ function Dashboard({ data, go, permissions }) {
 
 function QuickAction({ icon: Icon, label, onClick }) { return <button onClick={onClick} className="flex min-h-12 items-center gap-3 rounded-xl border border-stone/70 px-3 text-left text-sm font-medium hover:bg-canvas"><span className="grid h-8 w-8 place-items-center rounded-lg bg-ink text-white"><Icon size={17} /></span>{label}<ChevronRight size={16} className="ml-auto text-ink/45" /></button>; }
 function Empty({ title, body, action }) { return <div className="px-5 py-10 text-center"><p className="font-semibold text-ink">{title}</p><p className="mx-auto mt-1 max-w-sm text-sm leading-6 text-ink/60">{body}</p>{action}</div>; }
-function StatusPill({ value }) { const tone = value === "Available" ? "bg-ink text-white" : value === "Maintenance" ? "bg-stone text-ink" : value === "On hire" ? "bg-brand-600 text-white" : "bg-canvas text-ink"; return <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${tone}`}>{value}</span>; }
+function StatusPill({ value }) { const tone = ["Available", "Active"].includes(value) ? "bg-ink text-white" : ["Maintenance", "Planned"].includes(value) ? "bg-stone text-ink" : value === "On hire" ? "bg-brand-600 text-white" : value === "Cancelled" ? "bg-brand-50 text-brand-700" : "bg-canvas text-ink"; return <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${tone}`}>{value}</span>; }
 
 function Vehicles({ data, query, openForm, remove }) {
     const [filter, setFilter] = useState("All");
@@ -291,6 +295,65 @@ function Drivers({ data, query, openForm, remove }) {
     const records = data.drivers.filter((driver) => `${driver.name} ${driver.phone || ""} ${driver.licenceNumber || ""}`.toLowerCase().includes(query.toLowerCase()));
     return <><PageHeading eyebrow="People" title="Drivers" description="Driver profiles are managed by the owner or authorized staff. Drivers don’t sign in." action={<button onClick={() => openForm(null)} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-ink px-4 text-sm font-semibold text-white"><Plus size={17} />Add driver</button>} />
         {records.length ? <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{records.map((driver) => { const active = data.vehicles.find((vehicle) => vehicle.assignedDriverId === driver.id); return <Card key={driver.id}><div className="flex items-start justify-between"><div className="flex items-center gap-3"><span className="grid h-11 w-11 place-items-center rounded-full bg-ink text-sm font-semibold text-white">{driver.name.split(/\s+/).map((part) => part[0]).slice(0, 2).join("").toUpperCase()}</span><div><h2 className="font-semibold">{driver.name}</h2><p className="text-sm text-ink/55">{driver.phone || "No phone recorded"}</p></div></div><span className={`rounded-full px-2 py-1 text-xs font-semibold ${driver.active === false ? "bg-canvas text-ink/60" : "bg-ink text-white"}`}>{driver.active === false ? "Inactive" : "Active"}</span></div><div className="mt-4 border-t border-stone/70 pt-3 text-sm"><p className="text-xs text-ink/50">Assigned vehicle</p><p className="mt-1 font-medium">{active ? `${active.make} ${active.model} · ${active.registration}` : "No vehicle assigned"}</p><p className="mt-3 text-xs text-ink/50">Licence</p><p className="mt-1">{driver.licenceNumber || "Not recorded"}{driver.licenceExpiry ? ` · expires ${formatDate(driver.licenceExpiry)}` : ""}</p></div><div className="mt-3 flex border-t border-stone/70 pt-2"><button onClick={() => openForm(driver)} className="min-h-10 flex-1 rounded-lg text-sm font-semibold hover:bg-canvas">Edit</button><button onClick={() => remove(driver)} aria-label={`Delete ${driver.name}`} className="grid min-h-10 w-10 place-items-center rounded-lg text-ink/45 hover:text-brand-700"><Trash2 size={16} /></button></div></Card>; })}</div> : <Card className="!p-0"><Empty title="No drivers added yet" body="Add a driver profile, then assign them to a vehicle." action={!query && <button onClick={() => openForm(null)} className="mt-4 rounded-xl bg-ink px-4 py-2.5 text-sm font-semibold text-white">Add first driver</button>} /></Card>}
+    </>;
+}
+
+const HIRE_STATUS = { planned: "Planned", active: "Active", completed: "Completed", cancelled: "Cancelled" };
+
+function Hires({ data, query, openForm, canManage, persist }) {
+    const [filter, setFilter] = useState("all");
+    const vehicleById = new Map(data.vehicles.map((vehicle) => [vehicle.id, vehicle]));
+    const records = [...data.hires]
+        .filter((hire) => filter === "all" || hire.status === filter)
+        .filter((hire) => {
+            const vehicle = vehicleById.get(hire.vehicleId);
+            return `${hire.driverName || ""} ${hire.vehicleRegistration || vehicle?.registration || ""} ${vehicle?.make || ""} ${vehicle?.model || ""} ${hire.notes || ""}`.toLowerCase().includes(query.toLowerCase());
+        })
+        .sort((a, b) => String(b.startsAt).localeCompare(String(a.startsAt)));
+    const finish = (hire, status) => persist("hires", { ...hire, status, actualEndAt: dateToday() }, `Hire marked ${status}.`);
+    return <>
+        <PageHeading eyebrow="Operations" title="Hires" description="Plan vehicle hires, track active assignments, and keep completed history." action={canManage && <button onClick={() => openForm(null)} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-ink px-4 text-sm font-semibold text-white"><Plus size={17} />Record hire</button>} />
+        <div className="flex gap-2 overflow-x-auto pb-1">{["all", "planned", "active", "completed", "cancelled"].map((status) => <button key={status} onClick={() => setFilter(status)} className={`min-h-9 shrink-0 rounded-full border px-3 text-xs font-semibold ${filter === status ? "border-ink bg-ink text-white" : "border-stone bg-white text-ink/65"}`}>{status === "all" ? "All" : HIRE_STATUS[status]} ({status === "all" ? data.hires.length : data.hires.filter((hire) => hire.status === status).length})</button>)}</div>
+        {records.length ? <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">{records.map((hire) => { const vehicle = vehicleById.get(hire.vehicleId); return <Card key={hire.id} className="!p-0"><div className="flex items-start justify-between gap-3 border-b border-stone/70 p-4"><div className="min-w-0"><p className="truncate text-xs font-semibold uppercase tracking-[0.12em] text-ink/50">{hire.vehicleRegistration || vehicle?.registration || "Vehicle"}</p><h2 className="mt-1 truncate text-lg font-semibold">{hire.driverName || "Driver"}</h2><p className="mt-0.5 truncate text-sm text-ink/60">{vehicle ? `${vehicle.make} ${vehicle.model}` : "Vehicle hire"}</p></div><StatusPill value={HIRE_STATUS[hire.status] || hire.status} /></div><div className="grid grid-cols-2 gap-3 p-4 text-sm"><div><p className="text-xs text-ink/50">Starts</p><p className="mt-1 font-medium">{formatDate(hire.startsAt)}</p></div><div><p className="text-xs text-ink/50">Expected end</p><p className="mt-1 font-medium">{formatDate(hire.expectedEndAt)}</p></div>{hire.actualEndAt && <div><p className="text-xs text-ink/50">Actual end</p><p className="mt-1 font-medium">{formatDate(hire.actualEndAt)}</p></div>}{hire.notes && <div className="col-span-2"><p className="text-xs text-ink/50">Notes</p><p className="mt-1 whitespace-pre-wrap">{hire.notes}</p></div>}</div>{canManage && <div className="flex flex-wrap gap-1 border-t border-stone/70 p-3"><button onClick={() => openForm(hire)} className="min-h-10 flex-1 rounded-lg px-3 text-sm font-semibold hover:bg-canvas">Edit</button>{["planned", "active"].includes(hire.status) && <button onClick={() => finish(hire, "completed")} className="min-h-10 rounded-lg px-3 text-sm font-semibold hover:bg-canvas">Complete</button>}{["planned", "active"].includes(hire.status) && <button onClick={() => finish(hire, "cancelled")} className="min-h-10 rounded-lg px-3 text-sm font-semibold text-brand-700 hover:bg-brand-50">Cancel</button>}</div>}</Card>; })}</div> : <Card className="!p-0"><Empty title={query ? "No matching hires" : "No hires recorded yet"} body={query ? "Try another driver or registration." : "Record a planned or active vehicle hire to begin the operations history."} action={!query && canManage && <button onClick={() => openForm(null)} className="mt-4 rounded-xl bg-ink px-4 py-2.5 text-sm font-semibold text-white">Record first hire</button>} /></Card>}
+    </>;
+}
+
+function Reports({ data, permissions }) {
+    const [range, setRange] = useState("30");
+    const rangeStart = (() => {
+        if (range === "all") return "";
+        const date = new Date();
+        if (range === "year") return `${date.getFullYear()}-01-01`;
+        date.setDate(date.getDate() - Number(range));
+        return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+    })();
+    const inRange = (value) => !rangeStart || String(value || "").slice(0, 10) >= rangeStart;
+    const hires = data.hires.filter((item) => inRange(item.startsAt));
+    const expenses = data.expenses.filter((item) => inRange(item.date));
+    const income = data.income.filter((item) => inRange(item.date));
+    const remittances = data.remittances.filter((item) => inRange(item.date));
+    const canExpenses = permissions.has("finance.expenses.read");
+    const canIncome = permissions.has("finance.income.read");
+    const canRemittances = permissions.has("finance.remittances.read");
+    const expenseTotal = expenses.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+    const incomeTotal = income.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+    const remittanceTotal = remittances.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+    const byCategory = Object.entries(expenses.reduce((totals, item) => { totals[item.category || "Other"] = (totals[item.category || "Other"] || 0) + Number(item.amount || 0); return totals; }, {})).sort((a, b) => b[1] - a[1]);
+    const exportCsv = () => {
+        const quote = (value) => `"${String(value ?? "").replaceAll('"', '""')}"`;
+        const rows = [["Type", "Date", "Vehicle", "Driver", "Category", "Amount", "Status", "Notes"]];
+        hires.forEach((item) => rows.push(["Hire", String(item.startsAt).slice(0, 10), item.vehicleRegistration, item.driverName, "", "", item.status, item.notes]));
+        if (canExpenses) expenses.forEach((item) => rows.push(["Expense", item.date, item.vehicleName, "", item.category, item.amount, item.status || "posted", item.item]));
+        if (canIncome) income.forEach((item) => rows.push(["Income", item.date, item.vehicleName, item.driverName, "", item.amount, item.status || "posted", item.note]));
+        if (canRemittances) remittances.forEach((item) => rows.push(["Remittance", item.date, item.vehicleName, item.driverName, "", item.amount, item.status || "posted", item.note]));
+        const url = URL.createObjectURL(new Blob([rows.map((row) => row.map(quote).join(",")).join("\n")], { type: "text/csv;charset=utf-8" }));
+        const link = document.createElement("a"); link.href = url; link.download = `ip-motors-report-${dateToday()}.csv`; link.click(); URL.revokeObjectURL(url);
+    };
+    return <>
+        <PageHeading eyebrow="Insights" title="Reports" description="Review fleet activity for a selected period and export the records you are allowed to see." action={<button onClick={exportCsv} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-ink px-4 text-sm font-semibold text-white"><Download size={17} />Export CSV</button>} />
+        <div className="flex gap-2 overflow-x-auto pb-1">{[["30", "Last 30 days"], ["90", "Last 90 days"], ["year", "This year"], ["all", "All time"]].map(([value, label]) => <button key={value} onClick={() => setRange(value)} className={`min-h-9 shrink-0 rounded-full border px-3 text-xs font-semibold ${range === value ? "border-ink bg-ink text-white" : "border-stone bg-white text-ink/65"}`}>{label}</button>)}</div>
+        <div className="grid grid-cols-2 gap-3 xl:grid-cols-4"><Metric label="Vehicles" value={data.vehicles.length} helper={`${data.vehicles.filter((item) => item.status === "On hire").length} currently on hire`} dark /><Metric label="Hires in period" value={hires.length} helper={`${hires.filter((item) => item.status === "active").length} active`} />{canIncome && <Metric label="Income" value={formatMoney(incomeTotal)} helper={`${income.length} entries`} />}{canExpenses && <Metric label="Expenses" value={formatMoney(expenseTotal)} helper={`${expenses.length} entries`} />}{canRemittances && <Metric label="Remittances" value={formatMoney(remittanceTotal)} helper={`${remittances.length} entries`} />}</div>
+        <div className="grid gap-4 xl:grid-cols-2"><Card><h2 className="font-semibold">Hire activity</h2><p className="mt-1 text-sm text-ink/55">Status totals for the selected period</p><ul className="mt-4 grid grid-cols-2 gap-3">{["planned", "active", "completed", "cancelled"].map((status) => <li key={status} className="rounded-xl bg-canvas p-3"><p className="text-xs text-ink/55">{HIRE_STATUS[status]}</p><p className="mt-1 text-2xl font-semibold">{hires.filter((item) => item.status === status).length}</p></li>)}</ul></Card>{canExpenses ? <Card><h2 className="font-semibold">Expenses by category</h2><p className="mt-1 text-sm text-ink/55">Recorded costs in the selected period</p>{byCategory.length ? <ul className="mt-3 divide-y divide-stone/60">{byCategory.map(([category, total]) => <li key={category} className="flex justify-between gap-3 py-3 text-sm"><span>{category}</span><strong>{formatMoney(total)}</strong></li>)}</ul> : <p className="mt-4 text-sm text-ink/55">No expense records in this period.</p>}</Card> : <Card><h2 className="font-semibold">Operational report</h2><p className="mt-2 text-sm leading-6 text-ink/60">Your role can export vehicle and hire activity. Financial totals remain available only to the Fleet Owner and Finance Manager.</p></Card>}</div>
     </>;
 }
 
@@ -341,14 +404,16 @@ function RecordForm({ type, record, data, onClose, onSave }) {
     const [values, setValues] = useState(() => initialValues(type, record));
     const [formError, setFormError] = useState("");
     const update = (key, value) => setValues((current) => ({ ...current, [key]: value }));
-    const title = ({ vehicle: isEdit ? "Edit vehicle" : "Add vehicle", driver: isEdit ? "Edit driver" : "Add driver", expense: "Record vehicle expense", income: "Record income", remittance: "Record driver remittance" })[type];
-    const store = ({ vehicle: "vehicles", driver: "drivers", expense: "expenses", income: "income", remittance: "remittances" })[type];
+    const title = ({ vehicle: isEdit ? "Edit vehicle" : "Add vehicle", driver: isEdit ? "Edit driver" : "Add driver", hire: isEdit ? "Edit hire" : "Record hire", expense: "Record vehicle expense", income: "Record income", remittance: "Record driver remittance" })[type];
+    const store = ({ vehicle: "vehicles", driver: "drivers", hire: "hires", expense: "expenses", income: "income", remittance: "remittances" })[type];
     const submit = (event) => {
         event.preventDefault(); setFormError("");
         const amount = Number(values.amount);
         if (type === "vehicle" && (!values.registration.trim() || !values.make.trim() || !values.model.trim())) return setFormError("Enter the registration, make, and model.");
         if (type === "vehicle" && data.vehicles.some((vehicle) => vehicle.id !== record?.id && vehicle.registration?.trim().toLowerCase() === values.registration.trim().toLowerCase())) return setFormError("A vehicle with this registration is already recorded.");
         if (type === "driver" && !values.name.trim()) return setFormError("Enter the driver’s name.");
+        if (type === "hire" && (!values.vehicleId || !values.driverId || !values.startsAt)) return setFormError("Choose a vehicle and driver, then enter the start date.");
+        if (type === "hire" && values.expectedEndAt && values.expectedEndAt <= values.startsAt) return setFormError("The expected end must be after the start date.");
         if (type === "expense" && (!values.vehicleId || !values.item.trim() || !Number.isFinite(amount) || amount <= 0)) return setFormError("Choose a vehicle, enter the item, and enter a cost greater than zero.");
         if ((type === "income" || type === "remittance") && (!Number.isFinite(amount) || amount <= 0)) return setFormError("Enter an amount greater than zero.");
         if (type === "remittance" && !values.driverId) return setFormError("Choose the driver who made this remittance.");
@@ -357,6 +422,7 @@ function RecordForm({ type, record, data, onClose, onSave }) {
         const payload = { ...values, ...(record?.id ? { id: record.id } : {}) };
         if (type === "vehicle") Object.assign(payload, { registration: values.registration.trim().toUpperCase(), make: values.make.trim(), model: values.model.trim(), year: values.year ? Number(values.year) : "", assignedDriver: data.drivers.find((item) => item.id === values.assignedDriverId)?.name || "" });
         if (type === "driver") Object.assign(payload, { name: values.name.trim(), active: values.active === true || values.active === "true" });
+        if (type === "hire" && ["completed", "cancelled"].includes(values.status) && !values.actualEndAt) payload.actualEndAt = dateToday();
         if (type === "expense" || type === "income" || type === "remittance") Object.assign(payload, { amount, vehicleName: vehicle ? `${vehicle.make} ${vehicle.model} · ${vehicle.registration}` : values.vehicleName || "", driverName: driver?.name || values.driverName || "" });
         if (type === "expense") Object.assign(payload, { item: values.item.trim(), quantity: Number(values.quantity || 1), supplier: values.supplier.trim() });
         onSave(store, payload, `${title.replace(/^(Add|Edit|Record) /, "")} saved.`);
@@ -366,6 +432,7 @@ function RecordForm({ type, record, data, onClose, onSave }) {
     return <div className="fixed inset-0 z-[70] flex items-end justify-center bg-ink/55 p-0 backdrop-blur-sm sm:items-center sm:p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><div role="dialog" aria-modal="true" aria-labelledby="record-form-title" className="max-h-[92dvh] w-full max-w-2xl overflow-y-auto rounded-t-2xl bg-canvas p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:rounded-2xl sm:p-6"><div className="mb-5 flex items-center justify-between"><div><p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-ink/55">IP Motors</p><h2 id="record-form-title" className="mt-1 text-xl font-semibold">{title}</h2></div><button type="button" onClick={onClose} aria-label="Close form" className="rounded-lg p-2 hover:bg-stone/50"><X size={19} /></button></div><form onSubmit={submit} className="space-y-4">
         {type === "vehicle" && <div className="grid gap-4 sm:grid-cols-2">{field("registration", "Registration number", { required: true, placeholder: "e.g. BAA 1234" })}{field("make", "Make", { required: true, placeholder: "Toyota" })}{field("model", "Model", { required: true, placeholder: "Mark X" })}{field("year", "Year", { type: "number", min: "1950", placeholder: "2020" })}{field("colour", "Colour", { placeholder: "Black" })}{field("status", "Status", { select: ["Available", "On hire", "Maintenance", "Unavailable"].map((value) => ({ label: value, value })) })}{field("assignedDriverId", "Assigned driver", { select: data.drivers.map((driver) => ({ label: driver.name, value: driver.id })), placeholder: "No driver assigned" })}{field("insuranceExpiry", "Insurance expiry", { type: "date" })}{field("roadTaxExpiry", "Road tax expiry", { type: "date" })}{field("roadworthyExpiry", "Roadworthy expiry", { type: "date" })}{field("nextService", "Next service date", { type: "date" })}<label className="space-y-1.5 text-sm font-medium sm:col-span-2">Notes<textarea value={values.notes || ""} onChange={(event) => update("notes", event.target.value)} className="app-input min-h-24" placeholder="Optional vehicle notes" /></label></div>}
         {type === "driver" && <div className="grid gap-4 sm:grid-cols-2">{field("name", "Full name", { required: true, placeholder: "Driver name" })}{field("phone", "Phone", { placeholder: "+260…" })}{field("licenceNumber", "Licence number", { placeholder: "Optional" })}{field("licenceExpiry", "Licence expiry", { type: "date" })}{field("active", "Status", { select: [{ label: "Active", value: "true" }, { label: "Inactive", value: "false" }] })}</div>}
+        {type === "hire" && <div className="grid gap-4 sm:grid-cols-2">{field("vehicleId", "Vehicle", { required: true, select: data.vehicles.map((vehicle) => ({ label: `${vehicle.make} ${vehicle.model} · ${vehicle.registration}`, value: vehicle.id })), placeholder: "Choose vehicle" })}{field("driverId", "Driver", { required: true, select: data.drivers.filter((driver) => driver.active !== false).map((driver) => ({ label: driver.name, value: driver.id })), placeholder: "Choose driver" })}{field("status", "Status", { select: Object.entries(HIRE_STATUS).map(([value, label]) => ({ value, label })) })}{field("startsAt", "Start date", { required: true, type: "date" })}{field("expectedEndAt", "Expected end", { type: "date" })}{field("actualEndAt", "Actual end", { type: "date" })}<label className="space-y-1.5 text-sm font-medium sm:col-span-2">Notes<textarea value={values.notes || ""} onChange={(event) => update("notes", event.target.value)} className="app-input min-h-24" placeholder="Optional hire details" /></label></div>}
         {type === "expense" && <div className="grid gap-4 sm:grid-cols-2">{field("vehicleId", "Vehicle", { required: true, select: data.vehicles.map((vehicle) => ({ label: `${vehicle.make} ${vehicle.model} · ${vehicle.registration}`, value: vehicle.id })), placeholder: "Choose vehicle" })}{field("item", "Item or work", { required: true, placeholder: "Battery replacement" })}{field("category", "Category", { select: CATEGORIES.map((value) => ({ label: value, value })) })}{field("date", "Date", { required: true, type: "date" })}{field("quantity", "Quantity", { type: "number", min: "0.01", step: "any" })}{field("amount", "Total cost (ZMW)", { required: true, type: "number", min: "0.01", step: "0.01", placeholder: "0.00" })}{field("supplier", "Supplier or workshop", { placeholder: "Optional" })}{field("paymentMethod", "Payment method", { select: ["Cash", "Mobile money", "Bank transfer", "Card", "Other"].map((value) => ({ label: value, value })) })}</div>}
         {(type === "income" || type === "remittance") && <div className="grid gap-4 sm:grid-cols-2">{field("driverId", "Driver", { select: data.drivers.map((driver) => ({ label: driver.name, value: driver.id })), placeholder: "Not specified" })}{field("vehicleId", "Vehicle", { select: data.vehicles.map((vehicle) => ({ label: `${vehicle.make} ${vehicle.model} · ${vehicle.registration}`, value: vehicle.id })), placeholder: "Not specified" })}{field("date", "Date", { required: true, type: "date" })}{field("amount", "Amount (ZMW)", { required: true, type: "number", min: "0.01", step: "0.01", placeholder: "0.00" })}{field("paymentMethod", "Payment method", { select: ["Cash", "Mobile money", "Bank transfer", "Card", "Other"].map((value) => ({ label: value, value })) })}<label className="space-y-1.5 text-sm font-medium">Note<input value={values.note || ""} onChange={(event) => update("note", event.target.value)} className="app-input" placeholder="Optional details" /></label></div>}
         {formError && <p role="alert" className="rounded-lg border border-brand-500/30 bg-white px-3 py-2 text-sm text-brand-800">{formError}</p>}
@@ -374,8 +441,8 @@ function RecordForm({ type, record, data, onClose, onSave }) {
 }
 
 function initialValues(type, record) {
-    if (record) return { ...record, quantity: String(record.quantity ?? 1), amount: String(record.amount ?? ""), active: String(record.active !== false) };
-    const base = { date: dateToday(), quantity: "1", amount: "", category: CATEGORIES[0], paymentMethod: "Cash", status: "Available", active: "true" };
+    if (record) return { ...record, quantity: String(record.quantity ?? 1), amount: String(record.amount ?? ""), active: String(record.active !== false), startsAt: record.startsAt ? String(record.startsAt).slice(0, 10) : "", expectedEndAt: record.expectedEndAt ? String(record.expectedEndAt).slice(0, 10) : "", actualEndAt: record.actualEndAt ? String(record.actualEndAt).slice(0, 10) : "" };
+    const base = { date: dateToday(), startsAt: dateToday(), expectedEndAt: "", actualEndAt: "", quantity: "1", amount: "", category: CATEGORIES[0], paymentMethod: "Cash", status: type === "hire" ? "planned" : "Available", active: "true" };
     return base;
 }
 

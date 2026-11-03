@@ -57,6 +57,15 @@ function remittanceFromApi(item) {
   return { ...item, date: item.entryDate, note: item.notes || "" };
 }
 
+function hireFromApi(item) {
+  return {
+    ...item,
+    startsAt: item.startsAt,
+    expectedEndAt: item.expectedEndAt,
+    actualEndAt: item.actualEndAt,
+  };
+}
+
 export async function loadSharedFleet() {
   const me = await request("/v1/me");
   if (!me.membership) {
@@ -71,17 +80,18 @@ export async function loadSharedFleet() {
   const [vehicles, drivers, hires, expenses, income, remittances] = await Promise.all([
     canReadVehicles ? loadAll("/v1/vehicles", "vehicles") : [],
     canReadDrivers ? loadAll("/v1/drivers", "drivers") : [],
-    canReadOperations ? loadAll("/v1/hires?status=active", "hires") : [],
+    canReadOperations ? loadAll("/v1/hires", "hires") : [],
     permissions.has("finance.expenses.read") ? loadAll("/v1/expenses", "expenses") : [],
     permissions.has("finance.income.read") ? loadAll("/v1/income", "income") : [],
     permissions.has("finance.remittances.read") ? loadAll("/v1/remittances", "remittances") : [],
   ]);
-  const activeHireByVehicle = new Map(hires.map((hire) => [hire.vehicleId, hire]));
+  const activeHireByVehicle = new Map(hires.filter((hire) => hire.status === "active").map((hire) => [hire.vehicleId, hire]));
   return {
     me,
     data: {
       vehicles: vehicles.map((vehicle) => vehicleFromApi(vehicle, activeHireByVehicle.get(vehicle.id))),
       drivers: drivers.map(driverFromApi),
+      hires: hires.map(hireFromApi),
       expenses: expenses.map(expenseFromApi),
       income: income.map(incomeFromApi),
       remittances: remittances.map(remittanceFromApi),
@@ -140,6 +150,22 @@ export async function saveSharedRecord(store, record) {
       notes: record.notes || null,
     };
     return request(record.id ? `/v1/drivers/${record.id}` : "/v1/drivers", {
+      method: record.id ? "PATCH" : "POST",
+      body: JSON.stringify(body),
+    });
+  }
+  if (store === "hires") {
+    const toTimestamp = (value) => value ? `${String(value).slice(0, 10)}T00:00:00.000Z` : null;
+    const body = {
+      vehicleId: record.vehicleId,
+      driverId: record.driverId,
+      status: record.status,
+      startsAt: toTimestamp(record.startsAt),
+      expectedEndAt: toTimestamp(record.expectedEndAt),
+      actualEndAt: toTimestamp(record.actualEndAt),
+      notes: record.notes || null,
+    };
+    return request(record.id ? `/v1/hires/${record.id}` : "/v1/hires", {
       method: record.id ? "PATCH" : "POST",
       body: JSON.stringify(body),
     });
