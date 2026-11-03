@@ -64,13 +64,17 @@ export async function loadSharedFleet() {
     error.status = 403;
     throw error;
   }
+  const permissions = new Set(me.membership.permissions ?? []);
+  const canReadVehicles = permissions.has("fleet.vehicles.read") || permissions.has("finance.context.read");
+  const canReadDrivers = permissions.has("fleet.operations.read") || permissions.has("finance.context.read");
+  const canReadOperations = permissions.has("fleet.operations.read");
   const [vehicles, drivers, hires, expenses, income, remittances] = await Promise.all([
-    loadAll("/v1/vehicles", "vehicles"),
-    loadAll("/v1/drivers", "drivers"),
-    loadAll("/v1/hires?status=active", "hires"),
-    loadAll("/v1/expenses", "expenses"),
-    loadAll("/v1/income", "income"),
-    loadAll("/v1/remittances", "remittances"),
+    canReadVehicles ? loadAll("/v1/vehicles", "vehicles") : [],
+    canReadDrivers ? loadAll("/v1/drivers", "drivers") : [],
+    canReadOperations ? loadAll("/v1/hires?status=active", "hires") : [],
+    permissions.has("finance.expenses.read") ? loadAll("/v1/expenses", "expenses") : [],
+    permissions.has("finance.income.read") ? loadAll("/v1/income", "income") : [],
+    permissions.has("finance.remittances.read") ? loadAll("/v1/remittances", "remittances") : [],
   ]);
   const activeHireByVehicle = new Map(hires.map((hire) => [hire.vehicleId, hire]));
   return {

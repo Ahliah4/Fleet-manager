@@ -10,12 +10,12 @@ import VehicleImport from "./Components/VehicleImport";
 import { deleteSharedRecord, loadSharedFleet, saveSharedRecord, signOutSharedFleet } from "./lib/sharedFleet";
 
 const NAV = [
-    { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-    { id: "vehicles", label: "Vehicles", icon: CarFront },
-    { id: "drivers", label: "Drivers", icon: Users },
-    { id: "maintenance", label: "Maintenance & expenses", icon: Wrench },
-    { id: "finance", label: "Income & remittances", icon: CircleDollarSign },
-    { id: "backup", label: "Backup & settings", icon: Settings },
+    { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, permissions: [] },
+    { id: "vehicles", label: "Vehicles", icon: CarFront, permissions: ["fleet.vehicles.read", "finance.context.read"] },
+    { id: "drivers", label: "Drivers", icon: Users, permissions: ["fleet.operations.read", "finance.context.read"] },
+    { id: "maintenance", label: "Maintenance & expenses", icon: Wrench, permissions: ["finance.expenses.read"] },
+    { id: "finance", label: "Income & remittances", icon: CircleDollarSign, permissions: ["finance.income.read", "finance.remittances.read"] },
+    { id: "backup", label: "Backup & settings", icon: Settings, permissions: [] },
 ];
 
 const CATEGORIES = ["Parts", "Engine oil & fluids", "Tyres", "Repairs", "Service", "Inspection", "Other"];
@@ -83,6 +83,8 @@ function App() {
     const [error, setError] = useState("");
     const [message, setMessage] = useState("");
     const [blocked, setBlocked] = useState(null);
+    const permissions = new Set(me?.membership?.permissions || []);
+    const visibleNav = NAV.filter((item) => item.permissions.length === 0 || item.permissions.some((permission) => permissions.has(permission)));
 
     const refresh = useCallback(async () => {
         try {
@@ -149,7 +151,11 @@ function App() {
         }
     };
 
-    const title = NAV.find((item) => item.id === page)?.label || "Dashboard";
+    const title = visibleNav.find((item) => item.id === page)?.label || "Dashboard";
+
+    useEffect(() => {
+        if (me && !visibleNav.some((item) => item.id === page)) setPage("dashboard");
+    }, [me, page, visibleNav]);
 
     const signOut = async () => {
         await signOutSharedFleet().catch(() => undefined);
@@ -174,7 +180,7 @@ function App() {
                 </div>
                 <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/45">Fleet workspace</p>
                 <nav aria-label="Main navigation" className="flex-1 space-y-1">
-                    {NAV.map(({ id, label, icon: Icon }) => (
+                    {visibleNav.map(({ id, label, icon: Icon }) => (
                         <button key={id} type="button" onClick={() => { setPage(id); setSearch(""); setMenuOpen(false); setError(""); setMessage(""); }} className={`flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm font-medium transition ${page === id ? "bg-white text-ink" : "text-white/70 hover:bg-white/10 hover:text-white"}`}>
                             <Icon size={18} />{label}
                         </button>
@@ -207,7 +213,7 @@ function App() {
                     {error && <div role="alert" className="flex items-start justify-between gap-3 rounded-xl border border-brand-500/30 bg-white px-4 py-3 text-sm text-ink"><p>{error}</p><button type="button" aria-label="Dismiss error" onClick={() => setError("")}><X size={17} /></button></div>}
                     {message && <div role="status" className="flex items-start justify-between gap-3 rounded-xl border border-stone bg-white px-4 py-3 text-sm text-ink"><p className="flex items-center gap-2"><Check size={16} />{message}</p><button type="button" aria-label="Dismiss message" onClick={() => setMessage("")}><X size={17} /></button></div>}
                     <>
-                            {page === "dashboard" && <Dashboard data={data} go={setPage} />}
+                            {page === "dashboard" && <Dashboard data={data} go={setPage} permissions={permissions} />}
                             {page === "vehicles" && <Vehicles data={data} query={search} openForm={(record) => openForm("vehicle", record)} remove={(record) => remove("vehicles", record, `${record.make} ${record.model}`)} />}
                             {page === "drivers" && <Drivers data={data} query={search} openForm={(record) => openForm("driver", record)} remove={(record) => remove("drivers", record, record.name)} />}
                             {page === "maintenance" && <Maintenance data={data} query={search} openForm={() => openForm("expense")} />}
@@ -218,7 +224,7 @@ function App() {
             </div>
 
             <nav aria-label="Quick navigation" className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-stone/80 bg-white/95 pb-[env(safe-area-inset-bottom)] pt-1 backdrop-blur lg:hidden">
-                {[NAV[0], NAV[1], NAV[3], NAV[4], NAV[5]].map(({ id, label, icon: Icon }) => (
+                {visibleNav.filter((item) => item.id !== "drivers").slice(0, 5).map(({ id, label, icon: Icon }) => (
                     <button key={id} type="button" onClick={() => { setPage(id); setSearch(""); setError(""); setMessage(""); }} className={`flex min-h-14 flex-col items-center justify-center gap-1 text-[10px] font-medium ${page === id ? "text-brand-700" : "text-ink/55"}`}><Icon size={19} /><span>{id === "maintenance" ? "Costs" : id === "finance" ? "Finance" : id === "backup" ? "More" : label}</span></button>
                 ))}
             </nav>
@@ -239,7 +245,7 @@ function Metric({ label, value, helper, dark = false }) {
 
 function Card({ children, className = "" }) { return <section className={`rounded-2xl border border-stone/70 bg-white p-4 sm:p-5 ${className}`}>{children}</section>; }
 
-function Dashboard({ data, go }) {
+function Dashboard({ data, go, permissions }) {
     const monthKey = dateToday().slice(0, 7);
     const expenses = data.expenses.filter((item) => item.date?.startsWith(monthKey)).reduce((sum, item) => sum + Number(item.amount || 0), 0);
     const todayIncome = data.income.filter((item) => item.date === dateToday()).reduce((sum, item) => sum + Number(item.amount || 0), 0);
@@ -248,13 +254,17 @@ function Dashboard({ data, go }) {
     const available = data.vehicles.filter((item) => item.status === "Available").length;
     const onHire = data.vehicles.filter((item) => item.status === "On hire").length;
     const underMaintenance = data.vehicles.filter((item) => item.status === "Maintenance").length;
+    const canReadExpenses = permissions.has("finance.expenses.read");
+    const canReadIncome = permissions.has("finance.income.read");
+    const canReadRemittances = permissions.has("finance.remittances.read");
+    const canReadOperations = permissions.has("fleet.operations.read");
     return <>
         <PageHeading eyebrow="Overview" title="Fleet dashboard" description="Your vehicles, records, and money at a glance." action={<button onClick={() => go("vehicles")} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-ink px-4 text-sm font-semibold text-white hover:bg-black"><Plus size={17} />Add vehicle</button>} />
         <div role="status" className="flex gap-3 rounded-xl border border-stone bg-white px-4 py-3 text-sm leading-6 text-ink/70"><Check size={18} className="mt-0.5 shrink-0 text-brand-700" /><p><strong className="text-ink">Shared fleet connected.</strong> Authorized team members see the same saved records.</p></div>
-        <div className="grid grid-cols-2 gap-3 xl:grid-cols-4"><Metric label="Vehicles" value={data.vehicles.length} helper={`${available} available · ${onHire} on hire`} dark /><Metric label="In maintenance" value={underMaintenance} helper="Vehicles marked for repair or service" /><Metric label="Income recorded today" value={formatMoney(todayIncome)} helper="Kept separate from remittances" /><Metric label="Vehicle costs this month" value={formatMoney(expenses)} helper={`${data.expenses.length} expense entries`} /></div>
+        <div className="grid grid-cols-2 gap-3 xl:grid-cols-4"><Metric label="Vehicles" value={data.vehicles.length} helper={`${available} available · ${onHire} on hire`} dark /><Metric label="In maintenance" value={underMaintenance} helper="Vehicles marked for repair or service" />{canReadIncome && <Metric label="Income recorded today" value={formatMoney(todayIncome)} helper="Kept separate from remittances" />}{canReadExpenses && <Metric label="Vehicle costs this month" value={formatMoney(expenses)} helper={`${data.expenses.length} expense entries`} />}</div>
         <div className="grid gap-5 xl:grid-cols-[1.35fr_0.65fr]">
             <Card className="!p-0"><div className="flex items-center justify-between border-b border-stone/70 px-4 py-4 sm:px-5"><div><h2 className="font-semibold">Vehicles</h2><p className="mt-1 text-xs text-ink/55">{dueDocuments ? `${dueDocuments} document${dueDocuments === 1 ? "" : "s"} due within 30 days` : "Your vehicle register"}</p></div><button onClick={() => go("vehicles")} className="text-sm font-semibold text-brand-700">View all</button></div>{recent.length ? <ul className="divide-y divide-stone/60">{recent.map((vehicle) => <li key={vehicle.id} className="flex items-center justify-between gap-3 px-4 py-3.5 sm:px-5"><div className="min-w-0"><p className="truncate font-semibold">{vehicle.make} {vehicle.model}</p><p className="mt-0.5 text-sm text-ink/55">{vehicle.registration} · {vehicle.year || "Year not set"}</p></div><StatusPill value={vehicle.status || "Available"} /></li>)}</ul> : <Empty title="No vehicles added" body="Add your first car to start keeping the fleet register." action={<button onClick={() => go("vehicles")} className="mt-3 rounded-xl bg-ink px-4 py-2.5 text-sm font-semibold text-white">Add vehicle</button>} />}</Card>
-            <Card><h2 className="font-semibold">Quick actions</h2><div className="mt-4 grid gap-2"><QuickAction icon={CarFront} label="Add a vehicle" onClick={() => go("vehicles")} /><QuickAction icon={Users} label="Add a driver" onClick={() => go("drivers")} /><QuickAction icon={Wrench} label="Record a vehicle cost" onClick={() => go("maintenance")} /><QuickAction icon={CircleDollarSign} label="Record income or remittance" onClick={() => go("finance")} /></div></Card>
+            <Card><h2 className="font-semibold">Quick actions</h2><div className="mt-4 grid gap-2"><QuickAction icon={CarFront} label="Add a vehicle" onClick={() => go("vehicles")} />{canReadOperations && <QuickAction icon={Users} label="Add a driver" onClick={() => go("drivers")} />}{canReadExpenses && <QuickAction icon={Wrench} label="Record a vehicle cost" onClick={() => go("maintenance")} />}{(canReadIncome || canReadRemittances) && <QuickAction icon={CircleDollarSign} label="Record income or remittance" onClick={() => go("finance")} />}</div></Card>
         </div>
     </>;
 }
