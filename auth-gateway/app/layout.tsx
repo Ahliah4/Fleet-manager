@@ -1,9 +1,17 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./styles.css";
 
 export const metadata: Metadata = {
-  title: "Fleet Operations",
-  description: "Secure Fleet Operations sign-in",
+  title: "Sign in | IP Motors Fleet Manager",
+  description: "Secure sign-in for IP Motors Fleet Manager",
+  icons: { icon: "/brand-mark.svg" },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#131313",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

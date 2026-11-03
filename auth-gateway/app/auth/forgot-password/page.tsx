@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { FormEvent, useState } from "react";
 import { getAuthClient } from "@/lib/auth/client";
+import { AuthBrand } from "../ui/brand";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
@@ -30,10 +31,8 @@ export default function ForgotPasswordPage() {
   return (
     <main className="shell">
       <section className="card">
-        <div className="brand" aria-label="Fleet Operations">
-          <div className="mark">IP</div>
-          <span>FLEET OPERATIONS</span>
-        </div>
+        <AuthBrand />
+        <p className="eyebrow">Account recovery</p>
         <h1>Reset your password</h1>
         <p className="intro">
           Enter your account email and we will send a secure reset link.
@@ -53,6 +52,9 @@ export default function ForgotPasswordPage() {
               <input
                 name="email"
                 type="email"
+                inputMode="email"
+                autoCapitalize="none"
+                autoCorrect="off"
                 autoComplete="email"
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
