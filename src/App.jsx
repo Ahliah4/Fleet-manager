@@ -7,6 +7,7 @@ import {
 import InstallPrompt from "./Components/InstallPrompt";
 import BrandLogo from "./Components/BrandLogo";
 import VehicleImport from "./Components/VehicleImport";
+import { daysUntil, formatDate as formatDisplayDate } from "./lib/dates";
 import { deleteSharedRecord, loadSharedFleet, saveSharedRecord, signOutSharedFleet } from "./lib/sharedFleet";
 
 const NAV = [
@@ -31,8 +32,7 @@ function dateToday() {
 }
 
 function formatDate(value) {
-    if (!value) return "—";
-    return new Date(`${value}T00:00:00`).toLocaleDateString("en-ZM", { day: "numeric", month: "short", year: "numeric" });
+    return formatDisplayDate(value, "—");
 }
 
 function roleLabel(role) {
@@ -249,7 +249,7 @@ function Dashboard({ data, go, permissions }) {
     const monthKey = dateToday().slice(0, 7);
     const expenses = data.expenses.filter((item) => item.date?.startsWith(monthKey)).reduce((sum, item) => sum + Number(item.amount || 0), 0);
     const todayIncome = data.income.filter((item) => item.date === dateToday()).reduce((sum, item) => sum + Number(item.amount || 0), 0);
-    const dueDocuments = data.vehicles.reduce((count, vehicle) => count + [vehicle.insuranceExpiry, vehicle.roadTaxExpiry, vehicle.roadworthyExpiry].filter((date) => { const days = date ? (new Date(`${date}T00:00:00`) - new Date(`${dateToday()}T00:00:00`)) / 86400000 : null; return days !== null && days >= 0 && days <= 30; }).length, 0);
+    const dueDocuments = data.vehicles.reduce((count, vehicle) => count + [vehicle.insuranceExpiry, vehicle.roadTaxExpiry, vehicle.roadworthyExpiry].filter((date) => { const days = daysUntil(date); return days !== null && days >= 0 && days <= 30; }).length, 0);
     const recent = [...data.vehicles].sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || "")).slice(0, 5);
     const available = data.vehicles.filter((item) => item.status === "Available").length;
     const onHire = data.vehicles.filter((item) => item.status === "On hire").length;
@@ -282,7 +282,7 @@ function Vehicles({ data, query, openForm, remove }) {
     </>;
 }
 
-function DocDate({ label, date }) { const left = date ? Math.ceil((new Date(`${date}T00:00:00`) - new Date(`${dateToday()}T00:00:00`)) / 86400000) : null; return <div><p className="text-xs text-ink/50">{label}</p><p className={`mt-1 font-medium ${left !== null && left <= 30 ? "text-brand-700" : "text-ink"}`}>{date ? `${formatDate(date)}${left <= 30 ? ` · ${left < 0 ? "expired" : `${left}d left`}` : ""}` : "Not recorded"}</p></div>; }
+function DocDate({ label, date }) { const left = daysUntil(date); return <div><p className="text-xs text-ink/50">{label}</p><p className={`mt-1 font-medium ${left !== null && left <= 30 ? "text-brand-700" : "text-ink"}`}>{left === null ? "Not recorded" : `${formatDate(date)}${left <= 30 ? ` · ${left < 0 ? "expired" : `${left}d left`}` : ""}`}</p></div>; }
 
 function Drivers({ data, query, openForm, remove }) {
     const records = data.drivers.filter((driver) => `${driver.name} ${driver.phone || ""} ${driver.licenceNumber || ""}`.toLowerCase().includes(query.toLowerCase()));
