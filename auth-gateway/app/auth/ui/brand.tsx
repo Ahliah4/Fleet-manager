@@ -1,9 +1,17 @@
-import Image from "next/image";
-
 export function AuthBrand() {
   return (
     <div className="brand" aria-label="IP Motors Fleet Manager">
-      <Image className="brand-mark" src="/brand-mark.svg" alt="" width={48} height={48} priority />
+      <span className="brand-mark-frame">
+        {/* The canonical brand asset is served by the Fleet PWA. */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          className="brand-mark"
+          src="https://fleet-manager.ip-motors-fleet.workers.dev/ip-motors-mark.webp"
+          alt="IP Motors"
+          width="76"
+          height="48"
+        />
+      </span>
       <span className="brand-copy">
         <strong>IP Motors</strong>
         <span>Fleet Manager</span>

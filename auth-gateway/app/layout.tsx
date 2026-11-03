@@ -4,7 +4,7 @@ import "./styles.css";
 export const metadata: Metadata = {
   title: "Sign in | IP Motors Fleet Manager",
   description: "Secure sign-in for IP Motors Fleet Manager",
-  icons: { icon: "/brand-mark.svg" },
+  icons: { icon: "https://fleet-manager.ip-motors-fleet.workers.dev/favicon.png" },
 };
 
 export const viewport: Viewport = {
