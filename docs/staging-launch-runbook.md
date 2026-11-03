@@ -72,6 +72,17 @@ Do not put any of these values in a password field, SQLite, logs, or a mobile
 secret store. The issuer/audience are configuration values; the database URL
 and cookie secret remain server-side secrets.
 
+All `*.workers.dev` hostnames share the `workers.dev` zone, so a Worker
+fetching another Worker's public `*.workers.dev` URL is blocked with Cloudflare
+error 1042. Both the PWA and the API therefore use service bindings:
+
+- `fleet-manager`: `AUTH_GATEWAY` → `auth-gateway`, `FLEET_API` → `ip-motors-fleet-api-development`
+- `ip-motors-fleet-api-development`: `AUTH_GATEWAY` → `auth-gateway`
+
+The API still reads `AUTH_JWKS_URL` for its issuer/audience configuration, but
+the verifier fetches the JWKS through `AUTH_GATEWAY`. Do not replace these
+bindings with public URL fetches; doing so breaks sign-in and the API proxy.
+
 ### 3. Complete the secure mobile handoff before staging deployment
 
 The auth gateway uses the official Neon web SDK and keeps the Neon browser

@@ -181,6 +181,22 @@ export async function saveSharedRecord(store, record) {
   throw new Error("That shared record type is not supported.");
 }
 
+export async function importSharedVehicles(records, onProgress) {
+  const result = { imported: 0, failed: 0, errors: [] };
+  for (let index = 0; index < records.length; index += 1) {
+    const record = records[index];
+    try {
+      await request("/v1/vehicles", { method: "POST", body: JSON.stringify(vehicleBody(record)) });
+      result.imported += 1;
+    } catch (error) {
+      result.failed += 1;
+      result.errors.push({ registration: record.registration, message: error?.message || "Could not import this vehicle." });
+    }
+    onProgress?.(index + 1, records.length);
+  }
+  return result;
+}
+
 export async function deleteSharedRecord(store, id) {
   if (store !== "vehicles") throw new Error("Drivers with fleet history are made inactive instead of deleted.");
   return request(`/v1/vehicles/${id}`, { method: "DELETE" });

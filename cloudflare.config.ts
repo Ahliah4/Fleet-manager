@@ -8,6 +8,11 @@ export default defineConfig({
     compatibilityDate: "2025-02-04",
     env: {
       ASSETS: bindings.assets(),
+      // Both upstream Workers live on the same workers.dev zone as this one.
+      // Public fetches between them are blocked with Cloudflare error 1042, so
+      // use service bindings for the auth exchange and the API proxy.
+      AUTH_GATEWAY: bindings.worker({ worker: "auth-gateway" }),
+      FLEET_API: bindings.worker({ worker: "ip-motors-fleet-api-development" }),
     },
     observability: {
       enabled: true,

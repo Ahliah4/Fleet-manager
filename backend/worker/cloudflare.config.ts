@@ -9,6 +9,11 @@ export default defineConfig({
     env: {
       // DATABASE_URL is a Cloudflare Worker secret set during deployment.
       // It is intentionally absent from this config, source control, and Flutter.
+      //
+      // Workers in the same account share the workers.dev zone, so fetching the
+      // gateway's public JWKS URL from here fails with Cloudflare error 1042.
+      // The service binding keeps verification on Cloudflare's internal network.
+      AUTH_GATEWAY: bindings.worker({ worker: "auth-gateway" }),
       AUTH_ISSUER: process.env.AUTH_ISSUER
         ? bindings.text(process.env.AUTH_ISSUER)
         : undefined,

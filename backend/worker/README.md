@@ -22,6 +22,12 @@ Set the following names in your local shell or Cloudflare Worker configuration, 
 
 These auth values must match the real Neon Auth JWT configuration. The verifier validates the issuer, audience, expiry, subject, and supported asymmetric signing algorithms against the configured JWKS. Missing auth configuration fails closed for protected routes. Never put secrets or database URLs in Flutter or commit local environment files.
 
+The JWKS is fetched through the `AUTH_GATEWAY` service binding rather than the
+public gateway URL. All `*.workers.dev` hostnames share one zone, and a Worker
+fetching another Worker on that zone fails with Cloudflare error 1042. Keep the
+binding in `cloudflare.config.ts`; removing it makes every protected request
+return `401 AUTH_INVALID`.
+
 With `cf` installed and authenticated, run `npm run dev` for local Worker development or `npm run build` to build. The isolated development Worker is deployed; it is not the production API and must not receive production credentials.
 
 The existing `backend/scripts/migrate.ts` remains a separate Node command. Do not run it from the Worker, and do not automatically apply migrations on Worker startup.

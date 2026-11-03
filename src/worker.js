@@ -24,6 +24,13 @@ async function pkceChallenge(verifier) {
   return base64Url(new Uint8Array(digest));
 }
 
+// Workers on the same workers.dev zone cannot fetch each other's public URLs
+// (Cloudflare error 1042). Route upstream calls through service bindings when
+// they are available, falling back to fetch for local tooling and tests.
+function upstreamFetch(env, binding, url, init) {
+  return binding ? binding.fetch(new Request(url, init)) : fetch(url, init);
+}
+
 export function parseCookies(header = "") {
   const values = {};
   for (const part of header.split(";")) {
@@ -71,7 +78,7 @@ async function startAuthentication(request) {
   ]);
 }
 
-async function finishAuthentication(request) {
+async function finishAuthentication(request, env) {
   const url = new URL(request.url);
   const [verifier, expectedState] = (parseCookies(request.headers.get("cookie") ?? "")[FLOW_COOKIE] ?? "").split(".");
   const code = url.searchParams.get("code") ?? "";
@@ -82,7 +89,7 @@ async function finishAuthentication(request) {
   }
 
   try {
-    const response = await fetch(`${AUTH_GATEWAY_URL}/mobile/exchange`, {
+    const response = await upstreamFetch(env, env.AUTH_GATEWAY, `${AUTH_GATEWAY_URL}/mobile/exchange`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ code, code_verifier: verifier }),
@@ -101,9 +108,9 @@ async function finishAuthentication(request) {
   }
 }
 
-async function rotateSession(refreshToken) {
+async function rotateSession(refreshToken, env) {
   if (!refreshToken) return null;
-  const response = await fetch(`${AUTH_GATEWAY_URL}/mobile/refresh`, {
+  const response = await upstreamFetch(env, env.AUTH_GATEWAY, `${AUTH_GATEWAY_URL}/mobile/refresh`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ refresh_token: refreshToken }),
@@ -120,7 +127,7 @@ function sameOriginMutation(request) {
   return (!origin || origin === url.origin) && fetchSite !== "cross-site";
 }
 
-async function upstreamRequest(request, accessToken) {
+async function upstreamRequest(request, accessToken, env) {
   const incoming = new URL(request.url);
   const upstream = new URL(`${incoming.pathname.slice(4)}${incoming.search}`, FLEET_API_URL);
   const headers = new Headers(request.headers);
@@ -129,7 +136,7 @@ async function upstreamRequest(request, accessToken) {
   headers.set("x-request-id", request.headers.get("x-request-id") ?? crypto.randomUUID());
   const init = { method: request.method, headers, redirect: "manual" };
   if (!(["GET", "HEAD"].includes(request.method))) init.body = request.body;
-  return fetch(upstream, init);
+  return upstreamFetch(env, env.FLEET_API, upstream.toString(), init);
 }
 
 function copyUpstream(response, session, clearSession = false) {
@@ -142,14 +149,14 @@ function copyUpstream(response, session, clearSession = false) {
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
-async function proxyApi(request) {
+async function proxyApi(request, env) {
   if (!sameOriginMutation(request)) return Response.json({ error: { message: "Cross-site request blocked." } }, { status: 403 });
   const cookies = parseCookies(request.headers.get("cookie") ?? "");
   let accessToken = cookies[ACCESS_COOKIE];
   let refreshed = null;
 
   if (!accessToken) {
-    refreshed = await rotateSession(cookies[REFRESH_COOKIE]).catch(() => null);
+    refreshed = await rotateSession(cookies[REFRESH_COOKIE], env).catch(() => null);
     accessToken = refreshed?.accessToken;
   }
   if (!accessToken) {
@@ -158,19 +165,19 @@ async function proxyApi(request) {
     return Response.json({ error: { code: "UNAUTHENTICATED", message: "Sign in to continue." } }, { status: 401, headers });
   }
 
-  let response = await upstreamRequest(request, accessToken);
+  let response = await upstreamRequest(request, accessToken, env);
   if (response.status === 401 && !refreshed) {
-    refreshed = await rotateSession(cookies[REFRESH_COOKIE]).catch(() => null);
-    if (refreshed) response = await upstreamRequest(request, refreshed.accessToken);
+    refreshed = await rotateSession(cookies[REFRESH_COOKIE], env).catch(() => null);
+    if (refreshed) response = await upstreamRequest(request, refreshed.accessToken, env);
   }
   return copyUpstream(response, refreshed, response.status === 401);
 }
 
-async function signOut(request) {
+async function signOut(request, env) {
   if (!sameOriginMutation(request)) return new Response(null, { status: 403 });
   const refreshToken = parseCookies(request.headers.get("cookie") ?? "")[REFRESH_COOKIE];
   if (refreshToken) {
-    await fetch(`${AUTH_GATEWAY_URL}/mobile/revoke`, {
+    await upstreamFetch(env, env.AUTH_GATEWAY, `${AUTH_GATEWAY_URL}/mobile/revoke`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ refresh_token: refreshToken }),
@@ -184,9 +191,9 @@ async function signOut(request) {
 export async function handleRequest(request, env) {
   const url = new URL(request.url);
   if (url.pathname === "/auth/start" && request.method === "GET") return startAuthentication(request);
-  if (url.pathname === "/auth/callback" && request.method === "GET") return finishAuthentication(request);
-  if (url.pathname === "/auth/logout" && request.method === "POST") return signOut(request);
-  if (url.pathname.startsWith("/api/v1/")) return proxyApi(request);
+  if (url.pathname === "/auth/callback" && request.method === "GET") return finishAuthentication(request, env);
+  if (url.pathname === "/auth/logout" && request.method === "POST") return signOut(request, env);
+  if (url.pathname.startsWith("/api/v1/")) return proxyApi(request, env);
   if (url.pathname.startsWith("/auth/") || url.pathname.startsWith("/api/")) return new Response("Not found", { status: 404 });
   return env.ASSETS.fetch(request);
 }

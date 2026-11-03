@@ -31,6 +31,7 @@ import {
 
 interface Env {
   DATABASE_URL?: string;
+  AUTH_GATEWAY?: Fetcher;
   AUTH_ISSUER?: string;
   AUTH_AUDIENCE?: string;
   AUTH_JWKS_URL?: string;
@@ -898,12 +899,18 @@ async function authenticate(context: AppContext, next: Next): Promise<Response |
     let verifier = verifierCache.get(cacheKey);
     if (!verifier) {
       const tolerance = Number(context.env.AUTH_CLOCK_TOLERANCE_SECONDS ?? "30");
+      // Prefer the service binding: a Worker fetching another Worker on the
+      // same workers.dev zone is blocked with Cloudflare error 1042.
+      const gateway = context.env.AUTH_GATEWAY;
+      const jwksFetch: typeof fetch = gateway
+        ? (input, init) => gateway.fetch(new Request(input, init))
+        : fetch;
       verifier = createTokenVerifier({
         issuer,
         audience,
         jwksUrl,
         clockToleranceSeconds: Number.isInteger(tolerance) && tolerance >= 0 && tolerance <= 120 ? tolerance : 30,
-      }) ?? undefined;
+      }, jwksFetch) ?? undefined;
       if (verifier) verifierCache.set(cacheKey, verifier);
     }
     if (!verifier) throw new Error("Auth verifier is unavailable");

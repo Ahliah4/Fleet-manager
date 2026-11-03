@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import InstallPrompt from "./Components/InstallPrompt";
 import BrandLogo from "./Components/BrandLogo";
+import VehicleImport from "./Components/VehicleImport";
 import { deleteSharedRecord, loadSharedFleet, saveSharedRecord, signOutSharedFleet } from "./lib/sharedFleet";
 
 const NAV = [
@@ -57,6 +58,18 @@ function SignInScreen({ error }) {
     </main>;
 }
 
+function BlockedScreen({ error, onSignOut }) {
+    return <main className="grid min-h-[100dvh] place-items-center bg-canvas px-5 text-ink">
+        <section className="w-full max-w-md rounded-2xl border border-stone bg-white p-6 text-center shadow-sm">
+            <span className="mx-auto grid h-12 w-12 place-items-center rounded-xl bg-ink text-white"><ShieldAlert size={22} /></span>
+            <h1 className="mt-4 text-xl font-semibold">Fleet access needs attention</h1>
+            <p className="mt-2 text-sm leading-6 text-ink/65">{error.message}</p>
+            {error.code && <p className="mt-2 text-xs font-semibold uppercase tracking-[0.12em] text-ink/45">{error.code}</p>}
+            <button type="button" onClick={onSignOut} className="mt-5 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-ink px-4 text-sm font-semibold text-white"><LogOut size={17} />Sign out</button>
+        </section>
+    </main>;
+}
+
 function App() {
     const [data, setData] = useState(EMPTY);
     const [page, setPage] = useState("dashboard");
@@ -69,6 +82,7 @@ function App() {
     const [me, setMe] = useState(null);
     const [error, setError] = useState("");
     const [message, setMessage] = useState("");
+    const [blocked, setBlocked] = useState(null);
 
     const refresh = useCallback(async () => {
         try {
@@ -76,6 +90,7 @@ function App() {
             setData(shared.data);
             setMe(shared.me);
             setSignedOut(false);
+            setBlocked(null);
             setError("");
         } catch (loadError) {
             if (loadError?.status === 401) {
@@ -83,6 +98,8 @@ function App() {
                 const authError = new URL(window.location.href).searchParams.get("auth_error");
                 setError(authError ? "Sign-in could not be completed. Please try again." : "");
                 if (authError) history.replaceState({}, document.title, window.location.pathname);
+            } else if (loadError?.status === 403) {
+                setBlocked({ message: loadError?.message || "This account does not have fleet access yet.", code: loadError?.code });
             } else {
                 setError(loadError?.message || "Could not open the shared fleet.");
             }
@@ -138,11 +155,13 @@ function App() {
         await signOutSharedFleet().catch(() => undefined);
         setData(EMPTY);
         setMe(null);
+        setBlocked(null);
         setSignedOut(true);
     };
 
     if (loading) return <AuthLoading />;
     if (signedOut) return <SignInScreen error={error} />;
+    if (blocked) return <BlockedScreen error={blocked} onSignOut={signOut} />;
 
     return (
         <div className="min-h-screen bg-canvas text-ink lg:flex">
@@ -193,7 +212,7 @@ function App() {
                             {page === "drivers" && <Drivers data={data} query={search} openForm={(record) => openForm("driver", record)} remove={(record) => remove("drivers", record, record.name)} />}
                             {page === "maintenance" && <Maintenance data={data} query={search} openForm={() => openForm("expense")} />}
                             {page === "finance" && <Finance data={data} query={search} openForm={openForm} />}
-                            {page === "backup" && <Backup data={data} setError={setError} setMessage={setMessage} />}
+                            {page === "backup" && <Backup data={data} setError={setError} setMessage={setMessage} onImported={refresh} />}
                         </>
                 </main>
             </div>
@@ -293,7 +312,7 @@ function Finance({ data, query, openForm }) {
     </>;
 }
 
-function Backup({ data, setError, setMessage }) {
+function Backup({ data, setError, setMessage, onImported }) {
     const [working, setWorking] = useState(false);
     const download = async () => {
         setWorking(true); setError("");
@@ -301,7 +320,7 @@ function Backup({ data, setError, setMessage }) {
         catch (problem) { setError(problem?.message || "Could not create a backup."); }
         finally { setWorking(false); }
     };
-    return <><PageHeading eyebrow="Account & data" title="Backup & settings" description="Export a copy of the shared fleet records." /><Card className="max-w-3xl"><span className="grid h-11 w-11 place-items-center rounded-xl bg-ink text-white"><FileText size={20} /></span><h2 className="mt-4 text-lg font-semibold">Shared fleet export</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-ink/65">These records are loaded from the protected fleet database and shared with authorized team members. Download an export whenever you need an additional offline copy.</p><div className="mt-5"><button disabled={working} onClick={download} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-ink px-4 text-sm font-semibold text-white disabled:opacity-50"><Download size={17} />Download fleet export</button></div><div className="mt-6 flex items-start gap-3 rounded-xl bg-canvas p-4 text-sm leading-6 text-ink/65"><ShieldAlert size={18} className="mt-0.5 shrink-0 text-brand-700" /><p>Only authorized accounts can open or change this fleet. Sign out before handing your phone to someone else.</p></div></Card></>;
+    return <><PageHeading eyebrow="Account & data" title="Backup & settings" description="Export a copy of the shared fleet records or import vehicles in bulk." /><Card className="max-w-3xl"><span className="grid h-11 w-11 place-items-center rounded-xl bg-ink text-white"><FileText size={20} /></span><h2 className="mt-4 text-lg font-semibold">Shared fleet export</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-ink/65">These records are loaded from the protected fleet database and shared with authorized team members. Download an export whenever you need an additional offline copy.</p><div className="mt-5"><button disabled={working} onClick={download} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-ink px-4 text-sm font-semibold text-white disabled:opacity-50"><Download size={17} />Download fleet export</button></div><div className="mt-6 flex items-start gap-3 rounded-xl bg-canvas p-4 text-sm leading-6 text-ink/65"><ShieldAlert size={18} className="mt-0.5 shrink-0 text-brand-700" /><p>Only authorized accounts can open or change this fleet. Sign out before handing your phone to someone else.</p></div></Card><VehicleImport data={data} onImported={onImported} setError={setError} setMessage={setMessage} /></>;
 }
 
 function RecordForm({ type, record, data, onClose, onSave }) {

@@ -32,6 +32,29 @@ describe("Fleet PWA worker", () => {
     expect(response.status).toBe(403);
   });
 
+  it("proxies API calls through the FLEET_API service binding", async () => {
+    let seen;
+    const boundEnv = {
+      ...env,
+      FLEET_API: {
+        fetch: async (request) => {
+          seen = new URL(request.url);
+          return new Response(JSON.stringify({ ok: true }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        },
+      },
+    };
+    const response = await handleRequest(new Request("https://fleet-manager.ip-motors-fleet.workers.dev/api/v1/vehicles?limit=5", {
+      headers: { cookie: "__Host-fleet_access=test-token" },
+    }), boundEnv);
+    expect(response.status).toBe(200);
+    expect(seen.origin).toBe("https://ip-motors-fleet-api-development.ip-motors-fleet.workers.dev");
+    expect(seen.pathname).toBe("/v1/vehicles");
+    expect(seen.search).toBe("?limit=5");
+  });
+
   it("returns a signed-out response without a session", async () => {
     const response = await handleRequest(new Request("https://fleet-manager.ip-motors-fleet.workers.dev/api/v1/me"), env);
     expect(response.status).toBe(401);
