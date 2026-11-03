@@ -1,15 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
-import { getAuthClient } from "@/lib/auth/client";
 import { AuthBrand } from "./brand";
 
 type Mode = "sign-in" | "sign-up";
 
 export function AuthForm({ mode, returnTo }: { mode: Mode; returnTo?: string }) {
-  const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const isSignUp = mode === "sign-up";
@@ -21,22 +18,44 @@ export function AuthForm({ mode, returnTo }: { mode: Mode; returnTo?: string }) 
     const form = new FormData(event.currentTarget);
     const email = String(form.get("email") ?? "").trim();
     const password = String(form.get("password") ?? "");
-    const authClient = getAuthClient();
-    const result = isSignUp
-      ? await authClient.signUp.email({
-          name: String(form.get("name") ?? "").trim(),
-          email,
-          password,
-        })
-      : await authClient.signIn.email({ email, password });
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 20_000);
 
-    if (result.error) {
-      setMessage("We could not complete that request. Check your details and try again.");
+    try {
+      const payload = isSignUp
+        ? { name: String(form.get("name") ?? "").trim(), email, password }
+        : { email, password };
+      const response = await fetch(
+        isSignUp ? "/api/auth/sign-up/email" : "/api/auth/sign-in/email",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify(payload),
+          signal: controller.signal,
+        },
+      );
+
+      if (!response.ok) {
+        setMessage(
+          response.status === 401
+            ? "The email or password is incorrect. Use Forgot password to reset it."
+            : "Sign-in is temporarily unavailable. Please try again.",
+        );
+        return;
+      }
+
+      window.location.assign(returnTo === "/mobile/authorize" ? returnTo : "/auth/complete");
+    } catch (error) {
+      setMessage(
+        error instanceof DOMException && error.name === "AbortError"
+          ? "Sign-in timed out. Check your connection and try again."
+          : "The sign-in request could not be completed. Please try again.",
+      );
+    } finally {
+      window.clearTimeout(timeout);
       setBusy(false);
-      return;
     }
-    router.replace(returnTo === "/mobile/authorize" ? returnTo : "/auth/complete");
-    router.refresh();
   }
 
   return (
